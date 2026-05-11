@@ -11,9 +11,7 @@ import * as os from 'os';
  * - Windows: always true (desktop session assumed)
  * - Linux: checks $DISPLAY or $WAYLAND_DISPLAY environment variables
  */
-export function hasDisplay(): boolean {
-  const platform = os.platform();
-
+export function hasDisplay(platform = os.platform()): boolean {
   if (platform === 'darwin' || platform === 'win32') {
     return true;
   }

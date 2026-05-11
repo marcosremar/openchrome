@@ -130,7 +130,7 @@ export async function handleTwoFA(
               );
 
               // Wait briefly and check if page changed
-              const changed = await waitForPageChange(page, originalUrl, 3000);
+              const changed = await waitForPageChange(page, originalUrl, Math.min(timeoutMs, 3000));
               if (changed) {
                 filled = true;
                 break;
