@@ -251,11 +251,10 @@ export class ProfileManager {
       const destDefault = path.join(destDir, profileSubdir);
       fs.mkdirSync(destDefault, { recursive: true });
 
-      // --- 1. Copy Local State -----------------------------------------------
-      const localStateSrc = path.join(sourceDir, 'Local State');
-      if (fs.existsSync(localStateSrc)) {
-        fs.copyFileSync(localStateSrc, path.join(destDir, 'Local State'));
-      }
+      // --- 1. Do NOT copy Local State ----------------------------------------
+      // Copying the source Local State imports the real Chrome's full
+      // info_cache, making the persistent profile show stale profile entries
+      // with no on-disk data. Chrome generates a fresh Local State instead.
 
       // --- 2. Sync Cookies (atomic via sqlite3, or plain copy fallback) ------
       const sourceCookiesPath = path.join(sourceDir, profileSubdir, 'Cookies');
