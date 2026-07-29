@@ -23,6 +23,7 @@ import { installParentWatcher, ParentWatcherHandle } from './utils/parent-watche
 import { installIdleTimeout, IdleTimeoutHandle, parseDuration } from './utils/idle-timeout';
 import { getIdleState } from './utils/idle-state';
 import { getVersion } from './version';
+import { expandTilde } from './utils/expand-tilde';
 import { bootstrapPilot, logActiveFlags } from './harness/flags';
 import { ChromeProcessWatchdog } from './chrome/process-watchdog';
 import {
@@ -91,7 +92,7 @@ program
   .version(getVersion());
 
 function resolveControllerLockUserDataDir(userDataDir: string | undefined, useHeadlessShell: boolean): string {
-  if (userDataDir) return userDataDir;
+  if (userDataDir) return expandTilde(userDataDir);
   if (useHeadlessShell) return path.join(os.homedir(), '.openchrome', 'headless-shell-profile');
   return ProfileManager.PERSISTENT_PROFILE_DIR;
 }
@@ -189,9 +190,9 @@ program
     if (options.autoConnect === true) {
       autoConnectRaw = ''; // bare flag — use platform default
     } else if (typeof options.autoConnect === 'string') {
-      autoConnectRaw = options.autoConnect;
+      autoConnectRaw = expandTilde(options.autoConnect);
     } else if (process.env.OPENCHROME_AUTO_CONNECT !== undefined) {
-      autoConnectRaw = process.env.OPENCHROME_AUTO_CONNECT;
+      autoConnectRaw = expandTilde(process.env.OPENCHROME_AUTO_CONNECT);
     }
 
     // Resolve the requested launch mode (CLI > env). We do this here, rather
@@ -242,7 +243,7 @@ program
         port = result.port;
         // Override CLI inputs so the rest of the bootstrap sees the
         // discovered port + dir consistently.
-        options.userDataDir = result.userDataDir;
+        options.userDataDir = expandTilde(result.userDataDir);
         // Force attach so the launcher does not spawn.
         options.launchMode = 'attach';
         // Suppress autoLaunch — attach must never spawn.
@@ -268,7 +269,8 @@ program
       options.headless = true;
       console.error('[openchrome] Server mode: enabled (headless, no cookie bridge)');
     }
-    const userDataDir = options.userDataDir || process.env.CHROME_USER_DATA_DIR || undefined;
+    const rawUserDataDir = options.userDataDir || process.env.CHROME_USER_DATA_DIR;
+    const userDataDir = rawUserDataDir ? expandTilde(rawUserDataDir) : undefined;
     const profileDirectory = options.profileDirectory || process.env.CHROME_PROFILE_DIRECTORY || undefined;
     const chromeBinary = options.chromeBinary || process.env.CHROME_BINARY || undefined;
     const useHeadlessShell = options.headlessShell || false;

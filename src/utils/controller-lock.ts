@@ -4,6 +4,7 @@ import * as path from 'path';
 import { getVersion } from '../version';
 import { fetchJsonVersion } from '../chrome/devtools-info';
 import { DEFAULT_CHROME_LAUNCH_TIMEOUT_MS } from '../config/defaults';
+import { expandTilde } from './expand-tilde';
 
 export interface ControllerLockIdentity {
   port: number;
@@ -60,7 +61,7 @@ export class DuplicateControllerError extends Error {
 }
 
 export function normalizeControllerUserDataDir(userDataDir: string): string {
-  return path.resolve(userDataDir);
+  return path.resolve(expandTilde(userDataDir));
 }
 
 export function controllerLockKey(port: number, userDataDir: string): string {

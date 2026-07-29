@@ -14,6 +14,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
+import { expandTilde } from '../utils/expand-tilde';
 
 export const MARKER_FILENAME = '.openchrome-managed';
 const STATE_DIR = path.join(os.homedir(), '.openchrome', 'state', 'markers');
@@ -88,11 +89,12 @@ export function writeMarker(opts: {
   chromePid: number;
   userDataDir: string;
 }): string | null {
+  const userDataDir = expandTilde(opts.userDataDir);
   const marker: OwnershipMarker = {
     pid: opts.chromePid,
     ppid: process.pid,
     ppidCommand: readParentCommand(process.pid),
-    userDataDir: path.resolve(opts.userDataDir),
+    userDataDir: path.resolve(userDataDir),
     startedAt: new Date().toISOString(),
     marker: randomUUID(),
     launchMode: 'isolated',
@@ -102,10 +104,10 @@ export function writeMarker(opts: {
 
   // Primary: inside the user-data-dir (co-located with Chrome's profile).
   try {
-    fs.writeFileSync(primaryMarkerPath(opts.userDataDir), payload, { encoding: 'utf8' });
+    fs.writeFileSync(primaryMarkerPath(userDataDir), payload, { encoding: 'utf8' });
     return marker.marker;
   } catch (err) {
-    console.error(`${LOG_PREFIX} Primary marker write failed (${primaryMarkerPath(opts.userDataDir)}):`, err);
+    console.error(`${LOG_PREFIX} Primary marker write failed (${primaryMarkerPath(userDataDir)}):`, err);
   }
 
   // Fallback: openchrome state dir, keyed by Chrome PID.
@@ -124,8 +126,9 @@ export function writeMarker(opts: {
  */
 export function removeMarker(opts: { chromePid: number; userDataDir?: string }): void {
   if (opts.userDataDir) {
+    const userDataDir = expandTilde(opts.userDataDir);
     try {
-      fs.unlinkSync(primaryMarkerPath(opts.userDataDir));
+      fs.unlinkSync(primaryMarkerPath(userDataDir));
     } catch (err: unknown) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
         console.error(`${LOG_PREFIX} Failed to remove primary marker:`, err);
@@ -265,6 +268,7 @@ export function deleteMarkerFile(filePath: string): void {
  * reaper for now; rely on the Phase-2 sync kill at exit).
  */
 export function verifyChromePidIdentity(pid: number, expectedUserDataDir: string): boolean {
+  expectedUserDataDir = expandTilde(expectedUserDataDir);
   if (process.platform === 'linux') {
     try {
       const raw = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8');

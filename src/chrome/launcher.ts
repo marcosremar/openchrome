@@ -9,6 +9,7 @@ import * as os from 'os';
 import { getGlobalConfig } from '../config/global';
 import { writeChromePid, removeChromePid, getChromePidFilePath, killProcessTree } from '../utils/pid-manager';
 import { spawnProcessGuardian } from '../utils/process-guardian';
+import { expandTilde } from '../utils/expand-tilde';
 import { DEFAULT_VIEWPORT, DEFAULT_CHROME_LAUNCH_TIMEOUT_MS, DEFAULT_RESTORE_LAST_SESSION } from '../config/defaults';
 import type { WindowBoundsConfig } from '../config/window-bounds';
 import { getHeadedWindowArgs } from './launcher-window-args';
@@ -423,7 +424,8 @@ export class ChromeLauncher {
     // Resolve which profile directory to use via ProfileManager.
     // Priority: explicit > temp/headless > real unlocked > persistent (with sync) > persistent (no sync)
     const realProfileDir = this.getRealChromeProfileDir();
-    const explicitUserDataDir = options.userDataDir || globalConfig.userDataDir;
+    const rawUserDataDir = options.userDataDir || globalConfig.userDataDir;
+    const explicitUserDataDir = rawUserDataDir ? expandTilde(rawUserDataDir) : undefined;
     // Skip expensive isProfileLocked check when result won't be used:
     // explicit dir, temp profile, headless-shell, or no real profile.
     // Note: isAutoLaunch routes to persistent profile regardless of lock state,

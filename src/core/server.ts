@@ -23,6 +23,7 @@ import { getGlobalConfig, setGlobalConfig } from '../config/global';
 import { resolveHeadlessMode } from '../config/headless-resolver';
 import { resolveWindowBoundsConfig } from '../config/window-bounds';
 import { ToolTier } from '../config/tool-tiers';
+import { expandTilde } from '../utils/expand-tilde';
 import { bootstrapPilot, logActiveFlags, stopPilotBootstrap } from '../harness/flags';
 import { getChromeLauncher, _resetChromeLauncherForTesting } from '../chrome/launcher';
 import { getSessionManager, _resetSessionManagerForTesting } from '../session-manager';
@@ -191,7 +192,8 @@ class OpenChromeServerImpl implements OpenChromeServer {
     const chrome = opts.chrome ?? {};
     const port = chrome.port ?? 9222;
     const autoLaunch = chrome.autoLaunch ?? false;
-    const userDataDir = chrome.userDataDir ?? process.env.CHROME_USER_DATA_DIR ?? undefined;
+    const rawUserDataDir = chrome.userDataDir ?? process.env.CHROME_USER_DATA_DIR;
+    const userDataDir = rawUserDataDir ? expandTilde(rawUserDataDir) : undefined;
     const profileDirectory = chrome.profileDirectory ?? process.env.CHROME_PROFILE_DIRECTORY ?? undefined;
     const chromeBinary = chrome.chromeBinary ?? process.env.CHROME_BINARY ?? undefined;
     const useHeadlessShell = chrome.headlessShell ?? false;

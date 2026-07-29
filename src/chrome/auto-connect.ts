@@ -25,6 +25,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { URL } from 'url';
 import { probeDebugPort, type DebugPortProbeResult } from './launcher-debug-port';
+import { expandTilde } from '../utils/expand-tilde';
 
 export type ChromeChannel = 'stable' | 'beta' | 'dev' | 'canary';
 
@@ -135,7 +136,7 @@ function managedProfileDir(): string {
 }
 
 function normalize(p: string): string {
-  return path.resolve(p);
+  return path.resolve(expandTilde(p));
 }
 
 /**
@@ -148,7 +149,7 @@ function normalize(p: string): string {
  * point `--auto-connect` at openchrome's own managed profile via an alias.
  */
 function canonicalize(p: string): string {
-  const resolved = path.resolve(p);
+  const resolved = path.resolve(expandTilde(p));
   try {
     const real = fs.realpathSync.native
       ? fs.realpathSync.native(resolved)
