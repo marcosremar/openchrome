@@ -1,4 +1,7 @@
+import * as os from 'os';
+import * as path from 'path';
 import {
+  expandTilde,
   formatCodexMCPServerConfigSnippet,
   formatMCPServerConfigSnippet,
   getClaudeManualServerConfig,
@@ -57,7 +60,7 @@ describe('cli/mcp-client-config', () => {
     ]);
   });
 
-  test('isolated topology preset chooses a non-default port and profile', () => {
+  test('isolated topology preset expands tilde and chooses a non-default port and profile', () => {
     expect(getServeArgs({ topology: 'isolated' })).toEqual([
       'serve',
       '--auto-launch',
@@ -65,10 +68,74 @@ describe('cli/mcp-client-config', () => {
       '--port',
       '9223',
       '--user-data-dir',
-      '~/.openchrome/profiles/isolated',
+      path.join(os.homedir(), '.openchrome/profiles/isolated'),
       '--launch-mode',
       'isolated',
     ]);
+  });
+
+  test('ci-headless topology preset expands tilde and uses isolated launch', () => {
+    expect(getServeArgs({ topology: 'ci-headless' })).toEqual([
+      'serve',
+      '--auto-launch',
+      '--minimal',
+      '--port',
+      '9224',
+      '--user-data-dir',
+      path.join(os.homedir(), '.openchrome/profiles/ci'),
+      '--launch-mode',
+      'isolated',
+    ]);
+  });
+
+  test('dev-profile topology preset expands tilde', () => {
+    expect(getServeArgs({ topology: 'dev-profile' })).toEqual([
+      'serve',
+      '--auto-launch',
+      '--minimal',
+      '--port',
+      '9225',
+      '--user-data-dir',
+      path.join(os.homedir(), '.openchrome/profiles/dev'),
+    ]);
+  });
+
+  test('getServeArgs expands an explicit user-data-dir starting with tilde', () => {
+    expect(getServeArgs({ userDataDir: '~/.openchrome/custom' })).toEqual([
+      'serve',
+      '--auto-launch',
+      '--auto-elect',
+      '--minimal',
+      '--user-data-dir',
+      path.join(os.homedir(), '.openchrome/custom'),
+    ]);
+  });
+
+  test('OpenCode config with isolated topology contains expanded user-data-dir', () => {
+    expect(getOpenCodeServerConfig({ topology: 'isolated' })).toEqual({
+      type: 'local',
+      command: [
+        'openchrome',
+        'serve',
+        '--auto-launch',
+        '--minimal',
+        '--port',
+        '9223',
+        '--user-data-dir',
+        path.join(os.homedir(), '.openchrome/profiles/isolated'),
+        '--launch-mode',
+        'isolated',
+      ],
+    });
+  });
+
+  test('expandTilde resolves only leading tilde forms', () => {
+    const home = os.homedir();
+    expect(expandTilde('~')).toBe(home);
+    expect(expandTilde('~/.openchrome')).toBe(path.join(home, '.openchrome'));
+    expect(expandTilde('/tmp/openchrome')).toBe('/tmp/openchrome');
+    expect(expandTilde('relative/profile')).toBe('relative/profile');
+    expect(expandTilde('~other')).toBe('~other');
   });
 
   test('getServeArgs omits auto-launch when explicitly disabled', () => {

@@ -1,9 +1,18 @@
+import * as os from 'os';
+import * as path from 'path';
+
 export type SupportedMCPClient = 'claude' | 'codex' | 'opencode';
 export type SetupScope = 'user' | 'project';
 
 export type TopologyPreset = 'auto-elect' | 'single-owner' | 'broker-owner' | 'broker-client' | 'isolated' | 'ci-headless' | 'dev-profile';
 
 export const HOST_CONFIG_MIGRATION_NOTE = 'Package updates do not rewrite existing MCP host registrations; rerun setup or edit host config, then restart the host to activate topology changes.';
+
+export function expandTilde(input: string): string {
+  if (input === '~') return os.homedir();
+  if (input.startsWith('~/')) return path.join(os.homedir(), input.slice(2));
+  return input;
+}
 
 export interface ServeArgOptions {
   autoLaunch?: boolean;
@@ -80,7 +89,7 @@ export function getServeArgs(options: ServeArgOptions = {}): string[] {
   }
 
   if (resolved.userDataDir) {
-    serveArgs.push('--user-data-dir', resolved.userDataDir);
+    serveArgs.push('--user-data-dir', expandTilde(resolved.userDataDir));
   }
 
   if (resolved.profileDirectory) {
@@ -120,17 +129,17 @@ export function resolveTopologyOptions(options: ServeArgOptions = {}): ServeArgO
       break;
     case 'isolated':
       next.port ??= 9223;
-      next.userDataDir ??= '~/.openchrome/profiles/isolated';
+      next.userDataDir ??= expandTilde('~/.openchrome/profiles/isolated');
       next.launchMode ??= 'isolated';
       break;
     case 'ci-headless':
       next.port ??= 9224;
-      next.userDataDir ??= '~/.openchrome/profiles/ci';
+      next.userDataDir ??= expandTilde('~/.openchrome/profiles/ci');
       next.launchMode ??= 'isolated';
       break;
     case 'dev-profile':
       next.port ??= 9225;
-      next.userDataDir ??= '~/.openchrome/profiles/dev';
+      next.userDataDir ??= expandTilde('~/.openchrome/profiles/dev');
       break;
   }
   return next;
