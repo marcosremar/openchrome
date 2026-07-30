@@ -523,8 +523,9 @@ export class ProfileManager {
     //    so we use the persistent profile even when the real profile is not locked.
     if (realProfileDir && (isProfileLocked || isAutoLaunch)) {
       const persistentDir = this.getOrCreatePersistentProfile();
+      const subdir = profileDirectory || 'Default';
 
-      if (!this.needsSync(realProfileDir)) {
+      if (!this.needsSync(realProfileDir, subdir)) {
         // Persistent profile is fresh — reuse without re-sync
         return {
           userDataDir: persistentDir,
@@ -535,7 +536,7 @@ export class ProfileManager {
       }
 
       // Stale — sync profile data from real profile into persistent profile
-      const syncResult = this.syncProfileData(realProfileDir, persistentDir);
+      const syncResult = this.syncProfileData(realProfileDir, persistentDir, subdir);
       return {
         userDataDir: persistentDir,
         profileType: 'persistent',

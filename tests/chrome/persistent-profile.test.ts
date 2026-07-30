@@ -546,7 +546,7 @@ describe('ProfileManager', () => {
       expect(result.profileType).toBe('persistent');
       expect(result.userDataDir).toBe('/mock/persistent');
       expect(result.syncPerformed).toBe(true);
-      expect(manager.syncProfileData).toHaveBeenCalledWith('/real/chrome/profile', '/mock/persistent');
+      expect(manager.syncProfileData).toHaveBeenCalledWith('/real/chrome/profile', '/mock/persistent', 'Default');
     });
 
     it('should return persistent profile without sync when locked but fresh', () => {
@@ -615,7 +615,7 @@ describe('ProfileManager', () => {
 
       expect(result.profileType).toBe('persistent');
       expect(result.syncPerformed).toBe(true);
-      expect(manager.syncProfileData).toHaveBeenCalledWith('/real/chrome/profile', '/mock/persistent');
+      expect(manager.syncProfileData).toHaveBeenCalledWith('/real/chrome/profile', '/mock/persistent', 'Default');
     });
 
     it('should return real profile when isAutoLaunch is false and profile is unlocked (backward compat)', () => {
@@ -849,6 +849,23 @@ describe('ProfileManager', () => {
         profileDirectory: 'Profile 1',
       });
       expect(result.profileDirectory).toBe('Profile 1');
+    });
+
+    it('resolveProfile should sync from the requested profileDirectory, not Default', () => {
+      const manager = new ProfileManager();
+      jest.spyOn(manager, 'needsSync').mockReturnValue(true);
+      jest.spyOn(manager, 'syncProfileData').mockReturnValue({ atomic: true, success: true });
+      jest.spyOn(manager, 'getOrCreatePersistentProfile').mockReturnValue('/mock/persistent');
+
+      const result = manager.resolveProfile({
+        realProfileDir: '/real/chrome/profile',
+        isProfileLocked: true,
+        profileDirectory: 'Profile 7',
+      });
+
+      expect(result.profileType).toBe('persistent');
+      expect(manager.needsSync).toHaveBeenCalledWith('/real/chrome/profile', 'Profile 7');
+      expect(manager.syncProfileData).toHaveBeenCalledWith('/real/chrome/profile', '/mock/persistent', 'Profile 7');
     });
   });
 });
