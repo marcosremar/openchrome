@@ -7,6 +7,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as http from 'http';
+import { WebSocket } from 'ws';
 import { getGlobalConfig } from '../config/global';
 import { writeChromePid, removeChromePid, getChromePidFilePath, killProcessTree } from '../utils/pid-manager';
 import { spawnProcessGuardian } from '../utils/process-guardian';
@@ -166,10 +167,20 @@ async function checkDebugPort(
   port: number,
   timeoutMs: number = DEBUG_PORT_MAX_HTTP_TIMEOUT_MS,
 ): Promise<string | null> {
-  // Clamp to [1, MAX]. A lower bound of 1ms (not the old 100ms floor) lets
-  // waitForDebugPort use the last sliver of its remaining budget — localhost
-  // probes often complete in well under 10ms, so short windows can still
-  // succeed instead of being thrown away.
+  const clampedTimeout = Math.min(
+    Math.max(1, timeoutMs),
+    DEBUG_PORT_MAX_HTTP_TIMEOUT_MS,
+  );
+  const httpResult = await checkDebugPortHttp(port, clampedTimeout);
+  if (httpResult) return httpResult;
+
+  return checkDebugPortWebSocket(port, clampedTimeout);
+}
+
+async function checkDebugPortHttp(
+  port: number,
+  timeoutMs: number,
+): Promise<string | null> {
   const clampedTimeout = Math.min(
     Math.max(1, timeoutMs),
     DEBUG_PORT_MAX_HTTP_TIMEOUT_MS,
@@ -204,6 +215,45 @@ async function checkDebugPort(
     });
 
     req.end();
+  });
+}
+
+async function checkDebugPortWebSocket(
+  port: number,
+  timeoutMs: number,
+): Promise<string | null> {
+  const wsUrl = `ws://127.0.0.1:${port}/devtools/browser`;
+  return new Promise((resolve) => {
+    let settled = false;
+    const ws = new WebSocket(wsUrl, { perMessageDeflate: false });
+
+    const cleanup = (result: string | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try { ws.close(); } catch { /* ignore */ }
+      try { ws.terminate(); } catch { /* ignore */ }
+      resolve(result);
+    };
+
+    const timer = setTimeout(() => cleanup(null), timeoutMs);
+
+    ws.on('open', () => {
+      ws.send(JSON.stringify({ id: 1, method: 'Browser.getVersion' }));
+    });
+
+    ws.on('message', (data: Buffer) => {
+      try {
+        const msg = JSON.parse(data.toString());
+        if (msg.id === 1 && msg.result) {
+          cleanup(wsUrl);
+        }
+      } catch {
+        cleanup(null);
+      }
+    });
+
+    ws.on('error', () => cleanup(null));
   });
 }
 
