@@ -148,7 +148,7 @@ async function stealthAutoRetry(
     console.error(`[navigate] CAPTCHA solve failed: ${solveResult.error}, escalating to Tier 3`);
   }
   if (autoFallbackToHeaded && (stealthBlocked || stealthBroken)) {
-    const headedResult = await headedAutoRetry(targetUrl, blocking || blockingInfo, sessionId);
+    const headedResult = await headedAutoRetry(targetUrl, blocking || blockingInfo, sessionId, profileDirectory);
     if (headedResult) return headedResult;
   }
 
@@ -170,6 +170,7 @@ async function headedAutoRetry(
   targetUrl: string,
   blockingInfo: BlockingInfo,
   sessionId?: string,
+  profileDirectory?: string,
 ): Promise<MCPResult | null> {
   const headedFallback = getHeadedFallback(getGlobalConfig().port);
   if (!headedFallback.isAvailable()) {
@@ -181,7 +182,7 @@ async function headedAutoRetry(
 
   try {
     // Use persistent navigation so the page stays alive for tool interaction (#485)
-    const result = await headedFallback.navigatePersistent(targetUrl);
+    const result = await headedFallback.navigatePersistent(targetUrl, profileDirectory);
     let tabId: string | undefined;
     let assignedWorkerId: string | undefined;
 
@@ -572,7 +573,7 @@ const handler: ToolHandler = async (
       // When explicit stealth hits a block, escalate directly to tier 3 (headed Chrome)
       // since tier 2 (stealth) is already being used. (#453)
       if (newTabBlocking && stealth && autoFallback && RETRYABLE_BLOCK_TYPES.has(newTabBlocking.type)) {
-        const headedResult = await headedAutoRetry(targetUrl, newTabBlocking, sessionId);
+        const headedResult = await headedAutoRetry(targetUrl, newTabBlocking, sessionId, profileDirectory);
         if (headedResult) return headedResult;
       }
 
