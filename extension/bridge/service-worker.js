@@ -76,18 +76,27 @@ chrome.debugger.onDetach.addListener((source) => {
 });
 
 const DEFAULT_BRIDGE_URL = 'ws://127.0.0.1:9333';
+const MIN_RECONNECT_MS = 3000;
+const MAX_RECONNECT_MS = 60000;
+
+let reconnectDelay = MIN_RECONNECT_MS;
 
 async function connect() {
   const { bridgeUrl } = await chrome.storage.local.get('bridgeUrl');
 
   socket = new WebSocket(bridgeUrl || DEFAULT_BRIDGE_URL);
 
+  socket.onopen = () => {
+    reconnectDelay = MIN_RECONNECT_MS;
+  };
+
   socket.onmessage = (event) => handleCall(JSON.parse(event.data));
 
   socket.onclose = () => {
     socket = null;
     clearTimeout(reconnectTimer);
-    reconnectTimer = setTimeout(connect, 3000);
+    reconnectTimer = setTimeout(connect, reconnectDelay);
+    reconnectDelay = Math.min(reconnectDelay * 2, MAX_RECONNECT_MS);
   };
 
   socket.onerror = () => socket?.close();
