@@ -75,11 +75,12 @@ chrome.debugger.onDetach.addListener((source) => {
   send({ event: 'debugger.detached', tabId: source.tabId });
 });
 
+const DEFAULT_BRIDGE_URL = 'ws://127.0.0.1:9333';
+
 async function connect() {
   const { bridgeUrl } = await chrome.storage.local.get('bridgeUrl');
-  if (!bridgeUrl) return;
 
-  socket = new WebSocket(bridgeUrl);
+  socket = new WebSocket(bridgeUrl || DEFAULT_BRIDGE_URL);
 
   socket.onmessage = (event) => handleCall(JSON.parse(event.data));
 
@@ -97,6 +98,11 @@ chrome.storage.onChanged.addListener((changes) => {
     socket?.close();
     connect();
   }
+});
+
+chrome.alarms.create('reconnect', { periodInMinutes: 0.5 });
+chrome.alarms.onAlarm.addListener(() => {
+  if (!socket || socket.readyState === WebSocket.CLOSED) connect();
 });
 
 chrome.runtime.onStartup.addListener(connect);

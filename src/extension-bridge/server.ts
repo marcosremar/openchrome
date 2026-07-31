@@ -1,4 +1,7 @@
 import * as http from 'http';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import * as crypto from 'crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import puppeteer, { Browser } from 'puppeteer-core';
@@ -19,17 +22,45 @@ interface PendingCall {
 
 const DEFAULT_CALL_TIMEOUT_MS = 30000;
 
+export const DEFAULT_BRIDGE_PORT = 9333;
+
+function pinnedOriginPath(): string {
+  return (
+    process.env.OPENCHROME_EXTENSION_ORIGIN_PATH ||
+    path.join(os.homedir(), '.openchrome', 'extension-origin')
+  );
+}
+
 function tokensMatch(a: string, b: string): boolean {
   const left = Buffer.from(a);
   const right = Buffer.from(b);
   return left.length === right.length && crypto.timingSafeEqual(left, right);
 }
 
+function readPinnedOrigin(): string | null {
+  try {
+    return fs.readFileSync(pinnedOriginPath(), 'utf8').trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+function pinOrigin(origin: string): void {
+  const target = pinnedOriginPath();
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, origin, { mode: 0o600 });
+  console.error(`[ExtensionBridge] Pinned extension ${origin}`);
+}
+
 /**
  * Bridge between the MCP server and a Chrome extension holding chrome.debugger.
- * Loopback-only WebSocket, token-authenticated; the extension is the only way to
- * reach the user's real profile since Chrome 136+ refuses CDP on the default
- * user data dir.
+ * The extension is the only way to reach the user's real profile since Chrome
+ * 136+ refuses CDP on the default user data dir.
+ *
+ * Loopback-only, and the upgrade is accepted only for a chrome-extension://
+ * origin — a web page cannot forge Origin, so visited sites cannot reach the
+ * bridge. The first extension to connect is pinned; later ones are rejected
+ * unless they match. A token may be required on top of that.
  */
 export class ExtensionBridgeServer {
   private server: http.Server | null = null;
@@ -41,8 +72,8 @@ export class ExtensionBridgeServer {
   private connectionWaiters: Array<() => void> = [];
 
   constructor(
-    private readonly port: number,
-    readonly token: string = crypto.randomBytes(24).toString('hex')
+    private readonly port: number = DEFAULT_BRIDGE_PORT,
+    readonly token?: string
   ) {}
 
   async start(): Promise<void> {
@@ -54,8 +85,9 @@ export class ExtensionBridgeServer {
     this.wss = new WebSocketServer({ noServer: true });
 
     this.server.on('upgrade', (req, socket, head) => {
-      const token = new URL(req.url ?? '/', 'http://127.0.0.1').searchParams.get('token') ?? '';
-      if (!tokensMatch(token, this.token)) {
+      const denial = this.denyUpgrade(req);
+      if (denial) {
+        console.error(`[ExtensionBridge] Rejected connection: ${denial}`);
         socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
         socket.destroy();
         return;
@@ -68,7 +100,25 @@ export class ExtensionBridgeServer {
       this.server!.listen(this.port, '127.0.0.1', resolve);
     });
 
-    console.error(`[ExtensionBridge] Listening on ws://127.0.0.1:${this.port}?token=${this.token}`);
+    console.error(`[ExtensionBridge] Listening on ws://127.0.0.1:${this.port}`);
+  }
+
+  private denyUpgrade(req: http.IncomingMessage): string | null {
+    if (this.token) {
+      const supplied = new URL(req.url ?? '/', 'http://127.0.0.1').searchParams.get('token') ?? '';
+      if (!tokensMatch(supplied, this.token)) return 'bad token';
+    }
+
+    const origin = req.headers.origin ?? '';
+    if (!origin.startsWith('chrome-extension://')) return `origin ${origin || '(none)'} is not an extension`;
+
+    const pinned = readPinnedOrigin();
+    if (!pinned) {
+      pinOrigin(origin);
+      return null;
+    }
+
+    return pinned === origin ? null : `origin ${origin} does not match pinned ${pinned}`;
   }
 
   private adoptSocket(ws: WebSocket): void {

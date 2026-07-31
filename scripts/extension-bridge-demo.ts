@@ -7,8 +7,7 @@ async function main(): Promise<void> {
   const bridge = new ExtensionBridgeServer(PORT, process.env.OPENCHROME_BRIDGE_TOKEN);
   await bridge.start();
 
-  console.error('\nLoad extension/bridge as an unpacked extension, then paste this into its options page:');
-  console.error(`  ws://127.0.0.1:${PORT}?token=${bridge.token}\n`);
+  console.error('\nLoad extension/bridge as an unpacked extension — it connects on its own.');
   console.error('Waiting for the extension to connect...');
   await bridge.waitForExtension(WAIT_MS);
 
