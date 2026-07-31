@@ -22,6 +22,16 @@ Probed on a live tab; `-32601` means the method does not exist for extensions,
 | `Input.dispatchMouseEvent`, `Input.dispatchDragEvent` | `Target.createTarget`, `Target.attachToTarget` |
 | `Emulation.setDeviceMetricsOverride`, `Log.enable`, `Performance.enable`, `Accessibility.enable` | |
 
+### Console capture
+
+`Runtime.consoleAPICalled` and `Runtime.exceptionThrown` arrive complete —
+including logs from other extensions' content scripts in the same tab.
+
+One catch: puppeteer does not issue its usual initial `Runtime.enable` over the
+synthetic target, so `page.on('console')` stays silent until something enables
+the domain. With an explicit `Runtime.enable` the events flow (log, warn, error,
+pageerror). Tools that already enable the domain themselves are unaffected.
+
 ## Call sites
 
 ### Mechanical — the method works, only the session must change
