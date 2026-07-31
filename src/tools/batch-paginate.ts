@@ -186,19 +186,12 @@ const handler: ToolHandler = async (
       if (captureMode === 'screenshot' || captureMode === 'both') {
         try {
           const screenshotData = await Promise.race([
-            (async () => {
-              const cdpSession = await (page as any).target().createCDPSession();
-              try {
-                const { data } = await cdpSession.send('Page.captureScreenshot', {
-                  format: 'webp',
-                  quality: DEFAULT_SCREENSHOT_QUALITY,
-                  optimizeForSpeed: true,
-                });
-                return data as string;
-              } finally {
-                await cdpSession.detach().catch(() => {});
-              }
-            })(),
+            page.screenshot({
+              type: 'webp',
+              quality: DEFAULT_SCREENSHOT_QUALITY,
+              optimizeForSpeed: true,
+              encoding: 'base64',
+            }),
             new Promise<null>((resolve) => setTimeout(() => resolve(null), DEFAULT_SCREENSHOT_RACE_TIMEOUT_MS)),
           ]);
           if (screenshotData !== null) {

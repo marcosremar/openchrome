@@ -189,41 +189,10 @@ const handler: ToolHandler = async (
       let dragTid: ReturnType<typeof setTimeout>;
       await Promise.race([
         (async () => {
-          const client = await page.createCDPSession();
-          try {
-            // Dispatch drag events via CDP
-            await client.send('Input.dispatchDragEvent', {
-              type: 'dragEnter',
-              x: target.x,
-              y: target.y,
-              data: {
-                items: [],
-                dragOperationsMask: 1,
-              },
-            });
-
-            await client.send('Input.dispatchDragEvent', {
-              type: 'dragOver',
-              x: target.x,
-              y: target.y,
-              data: {
-                items: [],
-                dragOperationsMask: 1,
-              },
-            });
-
-            await client.send('Input.dispatchDragEvent', {
-              type: 'drop',
-              x: target.x,
-              y: target.y,
-              data: {
-                items: [],
-                dragOperationsMask: 1,
-              },
-            });
-          } finally {
-            await client.detach().catch(() => {});
-          }
+          const dragData = { items: [], dragOperationsMask: 1 };
+          await page.mouse.dragEnter(target, dragData);
+          await page.mouse.dragOver(target, dragData);
+          await page.mouse.drop(target, dragData);
         })().finally(() => clearTimeout(dragTid)),
         new Promise<never>((_, reject) => {
           dragTid = setTimeout(() => reject(new Error('Drag operation timed out')), 10000);

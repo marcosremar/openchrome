@@ -143,32 +143,22 @@ const handler: ToolHandler = async (
     let networkTid: ReturnType<typeof setTimeout>;
     await Promise.race([
       (async () => {
-        const client = await page.createCDPSession();
-        try {
-          if (preset === 'clear') {
-            await client.send('Network.emulateNetworkConditions', {
-              offline: false,
-              downloadThroughput: -1,
-              uploadThroughput: -1,
-              latency: 0,
-            });
-          } else if (preset === 'custom') {
-            await client.send('Network.emulateNetworkConditions', {
-              offline: false,
-              downloadThroughput: (downloadKbps! * 1024) / 8,
-              uploadThroughput: (uploadKbps! * 1024) / 8,
-              latency: latencyMs!,
-            });
-          } else {
-            await client.send('Network.emulateNetworkConditions', {
-              offline: preset === 'offline',
-              downloadThroughput: presetConfig.downloadThroughput,
-              uploadThroughput: presetConfig.uploadThroughput,
-              latency: presetConfig.latency,
-            });
-          }
-        } finally {
-          await client.detach().catch(() => {});
+        await page.setOfflineMode(preset === 'offline');
+
+        if (preset === 'clear') {
+          await page.emulateNetworkConditions(null);
+        } else if (preset === 'custom') {
+          await page.emulateNetworkConditions({
+            download: (downloadKbps! * 1024) / 8,
+            upload: (uploadKbps! * 1024) / 8,
+            latency: latencyMs!,
+          });
+        } else {
+          await page.emulateNetworkConditions({
+            download: presetConfig.downloadThroughput,
+            upload: presetConfig.uploadThroughput,
+            latency: presetConfig.latency,
+          });
         }
       })().finally(() => clearTimeout(networkTid)),
       new Promise<never>((_, reject) => {

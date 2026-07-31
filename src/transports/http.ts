@@ -570,16 +570,8 @@ export class HTTPTransport implements MCPTransport {
       throw new Error(`Page for target ${targetId} is closed or unavailable`);
     }
 
-    const cdpSession = await page.createCDPSession();
-    try {
-      const result = await cdpSession.send('Page.captureScreenshot', {
-        format: 'webp',
-        quality: 60,
-      }) as { data: string };
-      return { base64: result.data, format: 'webp', sessionId };
-    } finally {
-      await cdpSession.detach().catch(() => { /* ignore */ });
-    }
+    const base64 = await page.screenshot({ type: 'webp', quality: 60, encoding: 'base64' });
+    return { base64, format: 'webp', sessionId };
   }
 
   /**

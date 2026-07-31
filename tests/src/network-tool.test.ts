@@ -24,19 +24,14 @@ import { registerNetworkTool } from '../../src/tools/network';
 
 describe('Network Tool', () => {
   let handler: (sessionId: string, args: Record<string, unknown>) => Promise<any>;
-  let mockCdpSession: { send: jest.Mock; detach: jest.Mock };
-  let mockPage: { createCDPSession: jest.Mock };
+  let mockPage: { setOfflineMode: jest.Mock; emulateNetworkConditions: jest.Mock };
 
   beforeEach(() => {
     jest.clearAllMocks();
 
-    mockCdpSession = {
-      send: jest.fn().mockResolvedValue(undefined),
-      detach: jest.fn().mockResolvedValue(undefined),
-    };
-
     mockPage = {
-      createCDPSession: jest.fn().mockResolvedValue(mockCdpSession),
+      setOfflineMode: jest.fn().mockResolvedValue(undefined),
+      emulateNetworkConditions: jest.fn().mockResolvedValue(undefined),
     };
 
     mockGetPage.mockResolvedValue(mockPage);
@@ -91,10 +86,10 @@ describe('Network Tool', () => {
     test('should set offline mode', async () => {
       const result = await handler('session-1', { tabId: 'tab-1', preset: 'offline' });
 
-      expect(mockCdpSession.send).toHaveBeenCalledWith('Network.emulateNetworkConditions', {
-        offline: true,
-        downloadThroughput: 0,
-        uploadThroughput: 0,
+      expect(mockPage.setOfflineMode).toHaveBeenCalledWith(true);
+      expect(mockPage.emulateNetworkConditions).toHaveBeenCalledWith({
+        download: 0,
+        upload: 0,
         latency: 0,
       });
 
@@ -108,10 +103,10 @@ describe('Network Tool', () => {
     test('should apply 3G throttling', async () => {
       const result = await handler('session-1', { tabId: 'tab-1', preset: '3g' });
 
-      expect(mockCdpSession.send).toHaveBeenCalledWith('Network.emulateNetworkConditions', {
-        offline: false,
-        downloadThroughput: (1.5 * 1024 * 1024) / 8,
-        uploadThroughput: (750 * 1024) / 8,
+      expect(mockPage.setOfflineMode).toHaveBeenCalledWith(false);
+      expect(mockPage.emulateNetworkConditions).toHaveBeenCalledWith({
+        download: (1.5 * 1024 * 1024) / 8,
+        upload: (750 * 1024) / 8,
         latency: 100,
       });
 
@@ -126,10 +121,10 @@ describe('Network Tool', () => {
     test('should apply 4G throttling', async () => {
       const result = await handler('session-1', { tabId: 'tab-1', preset: '4g' });
 
-      expect(mockCdpSession.send).toHaveBeenCalledWith('Network.emulateNetworkConditions', {
-        offline: false,
-        downloadThroughput: (20 * 1024 * 1024) / 8,
-        uploadThroughput: (10 * 1024 * 1024) / 8,
+      expect(mockPage.setOfflineMode).toHaveBeenCalledWith(false);
+      expect(mockPage.emulateNetworkConditions).toHaveBeenCalledWith({
+        download: (20 * 1024 * 1024) / 8,
+        upload: (10 * 1024 * 1024) / 8,
         latency: 20,
       });
 
@@ -143,10 +138,10 @@ describe('Network Tool', () => {
     test('should apply slow 2G throttling', async () => {
       const result = await handler('session-1', { tabId: 'tab-1', preset: 'slow-2g' });
 
-      expect(mockCdpSession.send).toHaveBeenCalledWith('Network.emulateNetworkConditions', {
-        offline: false,
-        downloadThroughput: (50 * 1024) / 8,
-        uploadThroughput: (20 * 1024) / 8,
+      expect(mockPage.setOfflineMode).toHaveBeenCalledWith(false);
+      expect(mockPage.emulateNetworkConditions).toHaveBeenCalledWith({
+        download: (50 * 1024) / 8,
+        upload: (20 * 1024) / 8,
         latency: 2000,
       });
 
@@ -160,12 +155,8 @@ describe('Network Tool', () => {
     test('should clear network throttling', async () => {
       const result = await handler('session-1', { tabId: 'tab-1', preset: 'clear' });
 
-      expect(mockCdpSession.send).toHaveBeenCalledWith('Network.emulateNetworkConditions', {
-        offline: false,
-        downloadThroughput: -1,
-        uploadThroughput: -1,
-        latency: 0,
-      });
+      expect(mockPage.setOfflineMode).toHaveBeenCalledWith(false);
+      expect(mockPage.emulateNetworkConditions).toHaveBeenCalledWith(null);
 
       const response = JSON.parse(result.content[0].text);
       expect(response.action).toBe('network_clear');
@@ -182,10 +173,10 @@ describe('Network Tool', () => {
         latencyMs: 50,
       });
 
-      expect(mockCdpSession.send).toHaveBeenCalledWith('Network.emulateNetworkConditions', {
-        offline: false,
-        downloadThroughput: (1000 * 1024) / 8,
-        uploadThroughput: (500 * 1024) / 8,
+      expect(mockPage.setOfflineMode).toHaveBeenCalledWith(false);
+      expect(mockPage.emulateNetworkConditions).toHaveBeenCalledWith({
+        download: (1000 * 1024) / 8,
+        upload: (500 * 1024) / 8,
         latency: 50,
       });
 
@@ -218,17 +209,9 @@ describe('Network Tool', () => {
     });
   });
 
-  describe('CDP session management', () => {
-    test('should detach CDP session after operation', async () => {
-      await handler('session-1', { tabId: 'tab-1', preset: '3g' });
-
-      expect(mockCdpSession.detach).toHaveBeenCalled();
-    });
-  });
-
   describe('error handling', () => {
     test('should handle CDP errors gracefully', async () => {
-      mockCdpSession.send.mockRejectedValue(new Error('CDP protocol error'));
+      mockPage.emulateNetworkConditions.mockRejectedValue(new Error('CDP protocol error'));
 
       const result = await handler('session-1', { tabId: 'tab-1', preset: '3g' });
 

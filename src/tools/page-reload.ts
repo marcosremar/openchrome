@@ -56,14 +56,12 @@ const handler: ToolHandler = async (
 
     // Reload the page
     if (ignoreCache) {
-      // Use CDP to reload with cache bypass
-      const client = await page.createCDPSession();
-      await client.send('Page.reload', { ignoreCache: true });
-      await client.detach();
-      // Wait for navigation to complete
-      await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: DEFAULT_NAVIGATION_TIMEOUT_MS }).catch(() => {
-        // Navigation may have already completed
-      });
+      await page.setCacheEnabled(false);
+      try {
+        await page.reload({ waitUntil: 'domcontentloaded', timeout: DEFAULT_NAVIGATION_TIMEOUT_MS });
+      } finally {
+        await page.setCacheEnabled(true).catch(() => {});
+      }
     } else {
       await page.reload({ waitUntil: 'domcontentloaded', timeout: DEFAULT_NAVIGATION_TIMEOUT_MS });
     }

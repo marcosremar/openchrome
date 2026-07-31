@@ -1373,24 +1373,18 @@ export class CDPClient {
       const cachedData = this.cookieDataCache.get(sourceTargetId);
       if (cachedData && Date.now() - cachedData.timestamp < CDPClient.COOKIE_CACHE_TTL) {
         console.error(`[CDPClient] Cache hit for cookie data (${cachedData.cookies.length} cookies), skipping CDP attach`);
-        const destSession = await destPage.createCDPSession();
-        try {
-          const cookiesToSet = cachedData.cookies.map(c => ({
-            name: c.name,
-            value: c.value,
-            domain: c.domain,
-            path: c.path,
-            expires: c.expires,
-            httpOnly: c.httpOnly,
-            secure: c.secure,
-            sameSite: c.sameSite as 'Strict' | 'Lax' | 'None' | undefined,
-          }));
-          await destSession.send('Network.setCookies', { cookies: cookiesToSet });
-          console.error(`[CDPClient] Successfully copied ${cachedData.cookies.length} cookies (from cache)`);
-          return cachedData.cookies.length;
-        } finally {
-          await destSession.detach().catch(() => {});
-        }
+        await destPage.setCookie(...cachedData.cookies.map(c => ({
+          name: c.name,
+          value: c.value,
+          domain: c.domain,
+          path: c.path,
+          expires: c.expires,
+          httpOnly: c.httpOnly,
+          secure: c.secure,
+          sameSite: c.sameSite as 'Strict' | 'Lax' | 'None' | undefined,
+        })));
+        console.error(`[CDPClient] Successfully copied ${cachedData.cookies.length} cookies (from cache)`);
+        return cachedData.cookies.length;
       }
       if (cachedData) {
         // Stale entry: drop it so the cache does not retain expired data when
@@ -1439,25 +1433,18 @@ export class CDPClient {
 
         console.error(`[CDPClient] Found ${cookies.length} cookies, setting on destination page`);
 
-        // Set cookies on destination page via its own CDPSession
-        const destSession = await destPage.createCDPSession();
-        try {
-          const cookiesToSet = cookies.map(c => ({
-            name: c.name,
-            value: c.value,
-            domain: c.domain,
-            path: c.path,
-            expires: c.expires,
-            httpOnly: c.httpOnly,
-            secure: c.secure,
-            sameSite: c.sameSite as 'Strict' | 'Lax' | 'None' | undefined,
-          }));
-          await destSession.send('Network.setCookies', { cookies: cookiesToSet });
-          console.error(`[CDPClient] Successfully copied ${cookies.length} cookies`);
-          return cookies.length;
-        } finally {
-          await destSession.detach().catch(() => {});
-        }
+        await destPage.setCookie(...cookies.map(c => ({
+          name: c.name,
+          value: c.value,
+          domain: c.domain,
+          path: c.path,
+          expires: c.expires,
+          httpOnly: c.httpOnly,
+          secure: c.secure,
+          sameSite: c.sameSite as 'Strict' | 'Lax' | 'None' | undefined,
+        })));
+        console.error(`[CDPClient] Successfully copied ${cookies.length} cookies`);
+        return cookies.length;
       } finally {
         if (attachedSessionId) {
           await browserSession.send('Target.detachFromTarget', { sessionId: attachedSessionId }).catch(() => {});

@@ -59,6 +59,7 @@ function createMockPage(targetId = 'page-target-1') {
   return {
     target: jest.fn().mockReturnValue({ _targetId: targetId }),
     createCDPSession: jest.fn().mockResolvedValue(mockCdpSession),
+    setCookie: jest.fn().mockResolvedValue(undefined),
     close: jest.fn().mockResolvedValue(undefined),
     setViewport: jest.fn().mockResolvedValue(undefined),
     _cdpSession: mockCdpSession,
@@ -291,9 +292,7 @@ describe('CDPClient – cookieDataCache', () => {
     const cached = (client as any).cookieDataCache.get('src-target');
     expect(cached).toBeDefined();
     expect(cached.cookies).toHaveLength(1);
-    // destPage.createCDPSession must have been called to set cookies
-    expect(mockPage.createCDPSession).toHaveBeenCalled();
-    expect(mockPage._cdpSession.send).toHaveBeenCalledWith('Network.setCookies', expect.objectContaining({ cookies: expect.any(Array) }));
+    expect(mockPage.setCookie).toHaveBeenCalledWith(expect.objectContaining({ name: 'session' }));
   });
 
   test('cache hit: skips WebSocket and sets cookies directly', async () => {
@@ -314,9 +313,10 @@ describe('CDPClient – cookieDataCache', () => {
     expect(count).toBe(2);
     // fetch (for /json/list) must NOT be called
     expect(mockFetch).not.toHaveBeenCalled();
-    // But CDP session must be used to set cookies
-    expect(mockPage.createCDPSession).toHaveBeenCalled();
-    expect(mockPage._cdpSession.send).toHaveBeenCalledWith('Network.setCookies', expect.objectContaining({ cookies: expect.any(Array) }));
+    expect(mockPage.setCookie).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'token' }),
+      expect.objectContaining({ name: 'user' })
+    );
   });
 
   test('cache hit expires after COOKIE_CACHE_TTL', async () => {

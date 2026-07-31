@@ -482,19 +482,9 @@ const handler: ToolHandler = async (
     if (verify) {
       try {
         const screenshotResult = await Promise.race([
-          (async () => {
-            const cdpSession = await (page as any).target().createCDPSession();
-            try {
-              const { data } = await cdpSession.send('Page.captureScreenshot', {
-                format: 'webp',
-                quality: 60,
-                optimizeForSpeed: true,
-              });
-              return { data: data as string, mimeType: 'image/webp' };
-            } finally {
-              await cdpSession.detach().catch(() => {});
-            }
-          })(),
+          page
+            .screenshot({ type: 'webp', quality: 60, optimizeForSpeed: true, encoding: 'base64' })
+            .then((data) => ({ data, mimeType: 'image/webp' })),
           new Promise<null>((resolve) => setTimeout(() => resolve(null), DEFAULT_SCREENSHOT_RACE_TIMEOUT_MS)),
         ]);
 
