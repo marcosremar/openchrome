@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "OpenChrome Bridge",
+  "version": "0.1.0",
+  "description": "Relays chrome.debugger to a local OpenChrome server so automation can drive the signed-in profile.",
+  "permissions": ["debugger", "tabs", "storage"],
+  "background": {
+    "service_worker": "service-worker.js"
+  },
+  "options_page": "options.html"
+}
