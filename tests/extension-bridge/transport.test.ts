@@ -38,7 +38,7 @@ describe('ExtensionBridgeTransport', () => {
     transport.send(
       JSON.stringify({
         id: 3,
-        sessionId: 'pageTargetSessionId',
+        sessionId: 'extensionPageSession-7',
         method: 'Page.navigate',
         params: { url: 'https://example.com' },
       })
@@ -50,7 +50,7 @@ describe('ExtensionBridgeTransport', () => {
       method: 'Page.navigate',
       params: { url: 'https://example.com' },
     });
-    expect(messages[0]).toMatchObject({ id: 3, sessionId: 'pageTargetSessionId', result: { frameId: 'f1' } });
+    expect(messages[0]).toMatchObject({ id: 3, sessionId: 'extensionPageSession-7', result: { frameId: 'f1' } });
   });
 
   it('reports command failures as CDP errors', async () => {
@@ -71,7 +71,7 @@ describe('ExtensionBridgeTransport', () => {
     transport.emitEvent('Page.loadEventFired', { timestamp: 1 });
 
     expect(messages[0]).toEqual({
-      sessionId: 'pageTargetSessionId',
+      sessionId: 'extensionPageSession-7',
       method: 'Page.loadEventFired',
       params: { timestamp: 1 },
     });

@@ -350,7 +350,7 @@ describe('ProfileManager', () => {
       expect(destPrefs.session.startup_urls).toBeUndefined();
     });
 
-    it('should copy Local State file', () => {
+    it('should not copy the source Local State file', () => {
       fs.writeFileSync(path.join(sourceDir, 'Local State'), '{"os_crypt":{"key":"abc"}}');
 
       mockExecFileSync.mockImplementation((file: unknown) => {
@@ -363,10 +363,7 @@ describe('ProfileManager', () => {
       const manager = new ProfileManager();
       manager.syncProfileData(sourceDir, destDir);
 
-      expect(fs.existsSync(path.join(destDir, 'Local State'))).toBe(true);
-      expect(fs.readFileSync(path.join(destDir, 'Local State'), 'utf8')).toBe(
-        '{"os_crypt":{"key":"abc"}}'
-      );
+      expect(fs.existsSync(path.join(destDir, 'Local State'))).toBe(false);
     });
 
     it('should handle missing source Cookies file gracefully', () => {

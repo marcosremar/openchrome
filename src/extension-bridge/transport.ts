@@ -7,23 +7,31 @@ export type DebuggerCommandSender = (command: {
   params?: unknown;
 }) => Promise<unknown>;
 
-const tabTargetInfo = {
-  targetId: 'tabTargetId',
-  type: 'tab',
-  title: 'tab',
-  url: 'about:blank',
-  attached: false,
-  canAccessOpener: false,
-};
+/** One transport per tab, so synthetic ids must be unique or the target index collides. */
+export function bridgeTargetId(tabId: number): string {
+  return `extensionTab-${tabId}`;
+}
 
-const pageTargetInfo = {
-  targetId: 'pageTargetId',
-  type: 'page',
-  title: 'page',
-  url: 'about:blank',
-  attached: false,
-  canAccessOpener: false,
-};
+function targetInfos(tabId: number) {
+  return {
+    tab: {
+      targetId: `extensionTabTarget-${tabId}`,
+      type: 'tab',
+      title: 'tab',
+      url: 'about:blank',
+      attached: false,
+      canAccessOpener: false,
+    },
+    page: {
+      targetId: bridgeTargetId(tabId),
+      type: 'page',
+      title: 'page',
+      url: 'about:blank',
+      attached: false,
+      canAccessOpener: false,
+    },
+  };
+}
 
 interface CDPMessage {
   id?: number;
@@ -46,11 +54,19 @@ export class ExtensionBridgeTransport implements ConnectionTransport {
   onmessage?: (message: string) => void;
   onclose?: () => void;
 
+  private readonly targets: ReturnType<typeof targetInfos>;
+  private readonly tabSessionId: string;
+  private readonly pageSessionId: string;
+
   constructor(
     private readonly tabId: number,
     private readonly sendCommand: DebuggerCommandSender,
     private readonly onClosed?: () => void
-  ) {}
+  ) {
+    this.targets = targetInfos(tabId);
+    this.tabSessionId = `extensionTabSession-${tabId}`;
+    this.pageSessionId = `extensionPageSession-${tabId}`;
+  }
 
   send(message: string): void {
     const parsed = JSON.parse(message) as CDPMessage;
@@ -81,8 +97,8 @@ export class ExtensionBridgeTransport implements ConnectionTransport {
         return;
 
       case 'Target.setDiscoverTargets':
-        this.dispatch({ method: 'Target.targetCreated', params: { targetInfo: tabTargetInfo } });
-        this.dispatch({ method: 'Target.targetCreated', params: { targetInfo: pageTargetInfo } });
+        this.dispatch({ method: 'Target.targetCreated', params: { targetInfo: this.targets.tab } });
+        this.dispatch({ method: 'Target.targetCreated', params: { targetInfo: this.targets.page } });
         this.dispatch({
           id: parsed.id,
           sessionId: parsed.sessionId,
@@ -105,10 +121,10 @@ export class ExtensionBridgeTransport implements ConnectionTransport {
         return;
 
       case 'Target.setAutoAttach':
-        if (parsed.sessionId === 'tabTargetSessionId') {
+        if (parsed.sessionId === this.tabSessionId) {
           this.dispatch({
             method: 'Target.attachedToTarget',
-            params: { targetInfo: pageTargetInfo, sessionId: 'pageTargetSessionId' },
+            params: { targetInfo: this.targets.page, sessionId: this.pageSessionId },
           });
           this.dispatch({
             id: parsed.id,
@@ -121,7 +137,7 @@ export class ExtensionBridgeTransport implements ConnectionTransport {
         if (!parsed.sessionId) {
           this.dispatch({
             method: 'Target.attachedToTarget',
-            params: { targetInfo: tabTargetInfo, sessionId: 'tabTargetSessionId' },
+            params: { targetInfo: this.targets.tab, sessionId: this.tabSessionId },
           });
           this.dispatch({
             id: parsed.id,
@@ -134,7 +150,7 @@ export class ExtensionBridgeTransport implements ConnectionTransport {
         break;
     }
 
-    const sessionId = parsed.sessionId === 'pageTargetSessionId' ? undefined : parsed.sessionId;
+    const sessionId = parsed.sessionId === this.pageSessionId ? undefined : parsed.sessionId;
 
     this.sendCommand({
       tabId: this.tabId,
@@ -145,7 +161,7 @@ export class ExtensionBridgeTransport implements ConnectionTransport {
       .then((result) => {
         this.dispatch({
           id: parsed.id,
-          sessionId: parsed.sessionId ?? 'pageTargetSessionId',
+          sessionId: parsed.sessionId ?? this.pageSessionId,
           method: parsed.method,
           result,
         });
@@ -153,7 +169,7 @@ export class ExtensionBridgeTransport implements ConnectionTransport {
       .catch((err: Error) => {
         this.dispatch({
           id: parsed.id,
-          sessionId: parsed.sessionId ?? 'pageTargetSessionId',
+          sessionId: parsed.sessionId ?? this.pageSessionId,
           method: parsed.method,
           error: { message: err?.message ?? 'CDP error had no message' },
         });
@@ -162,7 +178,7 @@ export class ExtensionBridgeTransport implements ConnectionTransport {
 
   /** Feed a chrome.debugger.onEvent frame relayed by the extension. */
   emitEvent(method: string, params: unknown, sessionId?: string): void {
-    this.dispatch({ sessionId: sessionId ?? 'pageTargetSessionId', method, params });
+    this.dispatch({ sessionId: sessionId ?? this.pageSessionId, method, params });
   }
 
   close(): void {

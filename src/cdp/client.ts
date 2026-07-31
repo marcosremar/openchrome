@@ -2075,7 +2075,13 @@ export class CDPClient {
 
     let session = this.sessions.get(targetId);
     if (!session) {
-      session = await page.createCDPSession();
+      session = await page.createCDPSession().catch((err: Error) => {
+        // Extension-bridge pages cannot attach extra targets (chrome.debugger has
+        // no Target domain); their own session speaks the same protocol.
+        const ownSession = (page as unknown as { _client?: () => CDPSession })._client?.();
+        if (!ownSession) throw err;
+        return ownSession;
+      });
       this.sessions.set(targetId, session);
     }
 

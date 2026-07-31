@@ -18,6 +18,7 @@ import { registerOrchestrationTools } from './orchestration';
 
 // Phase 1 tools
 import { registerPageReloadTool } from './page-reload';
+import { registerRealTabsTool } from './real-tabs';
 import { registerCookiesTool } from './cookies';
 import { registerPageContentTool } from './page-content';
 import { registerWaitForTool } from './wait-for';
@@ -108,6 +109,7 @@ export function registerAllTools(server: MCPServer): void {
 
   // Phase 1: Page and content tools
   registerPageReloadTool(server);
+  registerRealTabsTool(server);
   registerCookiesTool(server);
   registerQueryDomTool(server);
   registerPageContentTool(server);

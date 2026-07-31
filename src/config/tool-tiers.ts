@@ -44,6 +44,7 @@ export const TOOL_TIERS: Record<string, ToolTier> = {
   validate_page: 1,           // src/tools/validate-page.ts — composite page-health check (#token-efficiency)
 
   // Tier 2: Specialist (on demand)
+  real_tabs: 2,              // src/tools/real-tabs.ts — needs the OpenChrome Bridge extension
   extract_data: 2,              // src/tools/extract-data.ts — structured extraction (#571)
   oc_totp_generate: 2,
   drag_drop: 2,
