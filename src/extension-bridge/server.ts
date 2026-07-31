@@ -22,6 +22,9 @@ interface PendingCall {
 
 const DEFAULT_CALL_TIMEOUT_MS = 30000;
 
+/** MV3 evicts an idle service worker after 30s; WebSocket traffic resets that timer. */
+const KEEPALIVE_INTERVAL_MS = 15000;
+
 export const DEFAULT_BRIDGE_PORT = 9333;
 
 function pinnedOriginPath(): string {
@@ -126,8 +129,13 @@ export class ExtensionBridgeServer {
     this.socket = ws;
     console.error('[ExtensionBridge] Extension connected');
 
+    const keepalive = setInterval(() => {
+      this.call('ping').catch(() => {});
+    }, KEEPALIVE_INTERVAL_MS);
+
     ws.on('message', (raw) => this.handleMessage(raw.toString()));
     ws.on('close', () => {
+      clearInterval(keepalive);
       if (this.socket === ws) this.socket = null;
       for (const { reject } of this.pending.values()) {
         reject(new Error('Extension disconnected'));
@@ -231,6 +239,14 @@ export class ExtensionBridgeServer {
 
   async createTab(url: string): Promise<ExtensionTab> {
     return (await this.call('tabs.create', { url })) as ExtensionTab;
+  }
+
+  async updateTab(tabId: number, changes: { url?: string; active?: boolean }): Promise<ExtensionTab> {
+    return (await this.call('tabs.update', { tabId, ...changes })) as ExtensionTab;
+  }
+
+  async closeTab(tabId: number): Promise<void> {
+    await this.call('tabs.remove', { tabId });
   }
 
   /**

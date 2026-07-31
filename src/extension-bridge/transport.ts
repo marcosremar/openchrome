@@ -91,6 +91,19 @@ export class ExtensionBridgeTransport implements ConnectionTransport {
         });
         return;
 
+      case 'Target.attachToTarget':
+      case 'Target.createTarget':
+      case 'Target.closeTarget':
+        this.dispatch({
+          id: parsed.id,
+          sessionId: parsed.sessionId,
+          method: parsed.method,
+          error: {
+            message: `${parsed.method} is unavailable over chrome.debugger — one tab per connection, use the extension tabs RPC`,
+          },
+        });
+        return;
+
       case 'Target.setAutoAttach':
         if (parsed.sessionId === 'tabTargetSessionId') {
           this.dispatch({

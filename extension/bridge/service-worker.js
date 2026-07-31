@@ -18,6 +18,14 @@ const handlers = {
 
   'tabs.create': async ({ url }) => tabInfo(await chrome.tabs.create({ url })),
 
+  'tabs.update': async ({ tabId, url, active }) =>
+    tabInfo(await chrome.tabs.update(tabId, { ...(url && { url }), ...(active !== undefined && { active }) })),
+
+  'tabs.remove': async ({ tabId }) => {
+    await chrome.tabs.remove(tabId);
+    return { removed: true };
+  },
+
   'debugger.attach': async ({ tabId }) => {
     if (!attachedTabs.has(tabId)) {
       await chrome.debugger.attach({ tabId }, '1.3');
@@ -47,6 +55,11 @@ function send(message) {
 }
 
 async function handleCall({ id, method, params }) {
+  if (method === 'ping') {
+    send({ id, result: { pong: true } });
+    return;
+  }
+
   const handler = handlers[method];
   if (!handler) {
     send({ id, error: `Unknown method: ${method}` });
