@@ -361,7 +361,7 @@ export class ChromePool {
       try {
         const profileManager = new ProfileManager();
         const realProfileDir = profileManager.getDefaultUserDataDir();
-        if (realProfileDir && profileManager.needsSync(realProfileDir, profileDirectory)) {
+        if (realProfileDir && profileManager.needsSync(realProfileDir, profileDirectory, profileUserDataDir)) {
           const result = profileManager.syncProfileData(realProfileDir, profileUserDataDir, profileDirectory);
           console.error(
             `[ChromePool] Cookie sync for profile "${profileDirectory}": ` +

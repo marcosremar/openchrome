@@ -209,6 +209,28 @@ describe('ProfileManager', () => {
       // Should NOT sync: persistent cookies were written after the last sync by a headless session
       expect(manager.needsSync(sourceDir)).toBe(false);
     });
+
+    it('should return false when the given destDir Cookies were modified after last sync', () => {
+      const cookiesPath = path.join(sourceDir, 'Default', 'Cookies');
+      fs.writeFileSync(cookiesPath, 'source-cookie-data');
+      const stat = fs.statSync(cookiesPath);
+
+      const metadata: SyncMetadata = {
+        lastSyncTimestamp: Date.now() - (40 * 60 * 1000),
+        sourceProfileHash: `${stat.mtimeMs}:${stat.size}`,
+        syncCount: 1,
+        sourceProfileDir: sourceDir,
+      };
+      fs.writeFileSync(ProfileManager.SYNC_METADATA_PATH, JSON.stringify(metadata));
+
+      const destDir = path.join(tmpDir, 'profiles', 'Profile 7');
+      fs.mkdirSync(path.join(destDir, 'Default'), { recursive: true });
+      fs.writeFileSync(path.join(destDir, 'Default', 'Cookies'), 'session-logged-in-here');
+
+      const manager = new ProfileManager();
+      expect(manager.needsSync(sourceDir, 'Default', destDir)).toBe(false);
+      expect(manager.needsSync(sourceDir, 'Default')).toBe(true);
+    });
   });
 
   // =========================================================================

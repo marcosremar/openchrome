@@ -21,6 +21,7 @@ import { detectBlockingPage, BlockingInfo } from '../utils/page-diagnostics';
 import { safeTitle } from '../utils/safe-title';
 import { getTargetId } from '../utils/puppeteer-helpers';
 import { spawnProcessGuardian } from '../utils/process-guardian';
+import { getGlobalConfig } from '../config/global';
 
 /** Default port offset from main Chrome port for the headed fallback */
 const HEADED_PORT_OFFSET = 100;
@@ -76,6 +77,23 @@ function findChromeBinary(): string | null {
     }
   }
   return null;
+}
+
+/**
+ * Profile to mirror when the caller did not ask for a specific one:
+ * the configured profile, else the profile Chrome used last.
+ */
+async function resolveDefaultProfileDirectory(): Promise<string | undefined> {
+  const configured = getGlobalConfig().profileDirectory;
+  if (configured) return configured;
+
+  try {
+    const { ProfileManager } = await import('./profile-manager');
+    return new ProfileManager().listProfiles().find((p) => p.isActive)?.directory;
+  } catch (err) {
+    console.error('[HeadedFallback] Profile detection failed (non-fatal):', err);
+    return undefined;
+  }
 }
 
 class HeadedFallbackManager {
@@ -136,11 +154,14 @@ class HeadedFallbackManager {
       throw new Error('[HeadedFallback] No display available for headed Chrome');
     }
 
-    // When profileDirectory is specified, use a persistent profile dir with cookie sync.
-    // Otherwise, use a temp profile to avoid conflicting with the user's Chrome. (#562)
+    // Use a persistent profile dir with cookie sync so the headed window keeps the
+    // user's logins. Chrome 136+ refuses CDP on the real user data dir, so we mirror
+    // the requested profile (default: the profile Chrome used last) into our own dir.
+    const resolvedProfile = profileDirectory ?? await resolveDefaultProfileDirectory();
+
     let userDataDir: string;
-    if (profileDirectory) {
-      const safeName = profileDirectory.replace(/[^a-zA-Z0-9_\- ]/g, '_');
+    if (resolvedProfile) {
+      const safeName = resolvedProfile.replace(/[^a-zA-Z0-9_\- ]/g, '_');
       userDataDir = path.join(os.homedir(), '.openchrome', 'profiles', safeName);
 
       // Sync cookies from real Chrome profile (non-fatal)
@@ -148,8 +169,8 @@ class HeadedFallbackManager {
         const { ProfileManager } = await import('./profile-manager');
         const profileManager = new ProfileManager();
         const realProfileDir = profileManager.getDefaultUserDataDir();
-        if (realProfileDir && profileManager.needsSync(realProfileDir, profileDirectory)) {
-          const result = profileManager.syncProfileData(realProfileDir, userDataDir, profileDirectory);
+        if (realProfileDir && profileManager.needsSync(realProfileDir, resolvedProfile, userDataDir)) {
+          const result = profileManager.syncProfileData(realProfileDir, userDataDir, resolvedProfile);
           console.error(`[HeadedFallback] Cookie sync: atomic=${result.atomic}, success=${result.success}`);
         }
       } catch (err) {
@@ -160,10 +181,12 @@ class HeadedFallbackManager {
     }
     fs.mkdirSync(userDataDir, { recursive: true });
 
+    console.error(`[HeadedFallback] Profile: ${resolvedProfile ?? 'temp (no Chrome profile found)'}`);
+
     const args = [
       `--remote-debugging-port=${this.port}`,
       `--user-data-dir=${userDataDir}`,
-      ...(profileDirectory ? [`--profile-directory=${profileDirectory}`] : []),
+      ...(resolvedProfile ? [`--profile-directory=${resolvedProfile}`] : []),
       '--no-first-run',
       '--no-default-browser-check',
       '--start-maximized',

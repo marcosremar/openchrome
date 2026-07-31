@@ -176,7 +176,7 @@ export class ProfileManager {
    *   mtime or size), OR
    * - The last sync is older than `COOKIE_FRESHNESS_MS`.
    */
-  needsSync(sourceDir: string, profileSubdir: string = 'Default'): boolean {
+  needsSync(sourceDir: string, profileSubdir: string = 'Default', destDir?: string): boolean {
     const metadata = this.getSyncMetadata();
 
     if (!metadata) {
@@ -197,10 +197,12 @@ export class ProfileManager {
       return false;
     }
 
-    // Guard: if the persistent profile's Cookies file has been modified after
-    // the last sync, a headless session wrote cookies — do not overwrite them.
+    // Guard: if the destination profile's Cookies file has been modified after
+    // the last sync, a browser session wrote cookies there — do not overwrite them.
+    // Sessions logged in inside the automation profile (Google/YouTube bind their
+    // session to the profile, so copied cookies get invalidated) must survive.
     const persistentCookiesPath = path.join(
-      ProfileManager.PERSISTENT_PROFILE_DIR,
+      destDir || ProfileManager.PERSISTENT_PROFILE_DIR,
       profileSubdir,
       'Cookies'
     );
