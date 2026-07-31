@@ -9,7 +9,7 @@ import { safeTitle } from '../utils/safe-title';
 
 const definition: MCPToolDefinition = {
   name: 'tabs_context',
-  description: 'Get session tab IDs grouped by worker.',
+  description: 'Get session tab IDs grouped by worker, plus untracked Chrome tabs (externalTabs) that can be adopted by using their tabId.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -77,6 +77,8 @@ const handler: ToolHandler = async (
       }
     }
 
+    const externalTabs = await sessionManager.listUntrackedTabs(sessionId, requestedWorkerId);
+
     if (summaryMode) {
       return {
         content: [
@@ -87,6 +89,7 @@ const handler: ToolHandler = async (
                 sessionId,
                 workerCount: workers.length,
                 tabCount: tabInfos.length,
+                externalTabCount: externalTabs.length,
                 workers: workers.map((w) => ({
                   id: w.id,
                   name: w.name,
@@ -117,6 +120,7 @@ const handler: ToolHandler = async (
                 tabCount: workerTabs[w.id]?.length || 0,
                 tabs: workerTabs[w.id] || [],
               })),
+              externalTabs,
             },
             null,
             2

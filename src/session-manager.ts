@@ -1229,10 +1229,10 @@ export class SessionManager {
       const worker = session.workers.get(resolvedWorkerId);
       if (!worker) return null;
 
-      // Safety: only recover into sessions that have at least one active target,
-      // confirming they have been actively used (not a stale or rogue session).
-      if (worker.targets.size === 0 && session.workers.size <= 1) {
-        console.error(`[SessionManager] Rejecting recovery into empty session ${sessionId}`);
+      // Safety: never steal a target owned by another session
+      const existingOwner = this.targetToWorker.get(targetId);
+      if (existingOwner && existingOwner.sessionId !== sessionId) {
+        console.error(`[SessionManager] Rejecting recovery of target owned by session ${existingOwner.sessionId}`);
         return null;
       }
 
@@ -1581,6 +1581,35 @@ export class SessionManager {
         }
       }
     }
+    return results;
+  }
+
+  /**
+   * List live Chrome tabs that no session owns yet.
+   * They can be adopted by passing their tabId to any tool (see tryRecoverTarget).
+   */
+  async listUntrackedTabs(sessionId: string, workerId?: string): Promise<Array<{ tabId: string; url: string; title: string }>> {
+    const session = this.sessions.get(sessionId);
+    if (!session) return [];
+
+    const cdpClient = this.getCDPClientForWorker(sessionId, workerId || session.defaultWorkerId);
+    const results: Array<{ tabId: string; url: string; title: string }> = [];
+
+    try {
+      for (const page of await cdpClient.getPages()) {
+        if (page.isClosed()) continue;
+        const targetId = getTargetId(page.target());
+        if (this.targetToWorker.has(targetId)) continue;
+
+        const url = page.url();
+        if (url.startsWith('chrome://') || url.startsWith('chrome-extension://')) continue;
+
+        results.push({ tabId: targetId, url, title: await safeTitle(page) });
+      }
+    } catch (err) {
+      console.error(`[SessionManager] listUntrackedTabs failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
     return results;
   }
 

@@ -198,6 +198,8 @@ export function createMockSessionManager(options: MockSessionManagerOptions = {}
       return Array.from(worker.targets);
     }),
 
+    listUntrackedTabs: jest.fn().mockResolvedValue([]),
+
     registerExternalTarget: jest.fn().mockImplementation((targetId: string, sessionId: string, workerId: string) => {
       const session = sessions.get(sessionId);
       if (!session) return;
