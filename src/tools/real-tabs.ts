@@ -33,6 +33,8 @@ async function withReconnect<T>(
   throw new Error('unreachable');
 }
 
+const DEFAULT_MAX_TABS = 10;
+
 const definition: MCPToolDefinition = {
   name: 'real_tabs',
   description:
@@ -48,6 +50,14 @@ const definition: MCPToolDefinition = {
         type: 'string',
         description: 'Open this URL in a new tab of the real profile and attach it.',
       },
+      compact: {
+        type: 'boolean',
+        description: 'Return a compact tab list without windowId/active and in one-line JSON. Default: true.',
+      },
+      maxTabs: {
+        type: 'number',
+        description: `Maximum tabs to return when listing. Default: ${DEFAULT_MAX_TABS}.`,
+      },
     },
     required: [],
   },
@@ -59,6 +69,8 @@ const handler: ToolHandler = async (
 ): Promise<MCPResult> => {
   const requestedTabId = args.tabId as number | undefined;
   const url = args.url as string | undefined;
+  const compact = args.compact !== false;
+  const maxTabs = Math.max(1, Math.min(args.maxTabs as number | undefined ?? DEFAULT_MAX_TABS, 100));
 
   try {
     const bridge = await getExtensionBridge();
@@ -77,12 +89,19 @@ const handler: ToolHandler = async (
     await bridge.waitForExtension(EXTENSION_WAIT_MS);
 
     if (requestedTabId === undefined && !url) {
-      const tabs = await withReconnect(bridge, () => bridge.listTabs());
+      const tabs = (await withReconnect(bridge, () => bridge.listTabs())).slice(0, maxTabs);
+      const output = compact
+        ? {
+            action: 'real_tabs',
+            tabCount: tabs.length,
+            tabs: tabs.map((tab) => ({ id: tab.id, title: tab.title, url: tab.url })),
+          }
+        : { action: 'real_tabs', tabCount: tabs.length, tabs };
       return {
         content: [
           {
             type: 'text',
-            text: JSON.stringify({ action: 'real_tabs', tabCount: tabs.length, tabs }, null, 2),
+            text: JSON.stringify(output, null, compact ? undefined : 2),
           },
         ],
       };
