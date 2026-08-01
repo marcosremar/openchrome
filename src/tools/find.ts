@@ -41,6 +41,10 @@ const definition: MCPToolDefinition = {
         type: 'boolean',
         description: 'Use vision-based screenshot analysis if DOM discovery finds nothing. Default: follows OPENCHROME_VISION_MODE env.',
       },
+      compact: {
+        type: 'boolean',
+        description: 'Return minimal output: [ref] role: "name" only. Default: true.',
+      },
     },
     required: ['query', 'tabId'],
   },
@@ -56,6 +60,7 @@ const handler: ToolHandler = async (
   const waitForMs = args.waitForMs as number | undefined;
   const pollInterval = Math.min(Math.max((args.pollInterval as number) || 200, 50), 2000);
   const visionFallback = args.vision_fallback as boolean | undefined;
+  const compact = args.compact !== false;
   const visionMode = getVisionMode();
 
   const sessionManager = getSessionManager();
@@ -112,10 +117,14 @@ const handler: ToolHandler = async (
             sessionId, tabId, el.backendDOMNodeId,
             el.role, el.name, undefined, undefined
           );
-          const scoreLabel = el.matchLevel === 1 ? '\u2605\u2605\u2605' : el.matchLevel === 2 ? '\u2605\u2605' : '\u2605';
-          axOutput.push(
-            `[${refId}] ${el.role}: "${el.name}" at (${Math.round(el.rect.x)}, ${Math.round(el.rect.y)}) ${scoreLabel} [AX]`
-          );
+          if (compact) {
+            axOutput.push(`[${refId}] ${el.role}: "${el.name}"`);
+          } else {
+            const scoreLabel = el.matchLevel === 1 ? '\u2605\u2605\u2605' : el.matchLevel === 2 ? '\u2605\u2605' : '\u2605';
+            axOutput.push(
+              `[${refId}] ${el.role}: "${el.name}" at (${Math.round(el.rect.x)}, ${Math.round(el.rect.y)}) ${scoreLabel} [AX]`
+            );
+          }
         }
 
         await cleanupTags(page, DISCOVERY_TAG).catch(() => {});
@@ -184,11 +193,14 @@ const handler: ToolHandler = async (
           el.textContent
         );
 
-        // Include score in output for transparency
-        const scoreLabel = el.score >= 100 ? '★★★' : el.score >= 50 ? '★★' : el.score >= 20 ? '★' : '';
-        output.push(
-          `[${refId}] ${el.role}: "${el.name}" at (${Math.round(el.rect.x)}, ${Math.round(el.rect.y)}) ${scoreLabel}`.trim()
-        );
+        if (compact) {
+          output.push(`[${refId}] ${el.role}: "${el.name}"`);
+        } else {
+          const scoreLabel = el.score >= 100 ? '★★★' : el.score >= 50 ? '★★' : el.score >= 20 ? '★' : '';
+          output.push(
+            `[${refId}] ${el.role}: "${el.name}" at (${Math.round(el.rect.x)}, ${Math.round(el.rect.y)}) ${scoreLabel}`.trim()
+          );
+        }
       }
     }
 
