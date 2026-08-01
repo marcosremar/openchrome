@@ -8,12 +8,30 @@
 import { MCPServer } from '../mcp-server';
 import { MCPToolDefinition, MCPResult, ToolHandler } from '../types/mcp';
 import { getSessionManager } from '../session-manager';
-import { getExtensionBridge, bridgeTargetId } from '../extension-bridge';
+import { getExtensionBridge, bridgeTargetId, ExtensionBridgeServer } from '../extension-bridge';
 import { safeTitle } from '../utils/safe-title';
 import { getChromeLauncher } from '../chrome/launcher';
 
 const REAL_WORKER_ID = 'extension';
 const EXTENSION_WAIT_MS = Number(process.env.OPENCHROME_BRIDGE_WAIT_MS ?? 20000);
+const BRIDGE_CALL_ATTEMPTS = 3;
+
+async function withReconnect<T>(
+  bridge: ExtensionBridgeServer,
+  fn: () => Promise<T>
+): Promise<T> {
+  for (let attempt = 1; attempt <= BRIDGE_CALL_ATTEMPTS; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const retriable = message.includes('Extension disconnected') || message.includes('No extension connected');
+      if (!retriable || attempt === BRIDGE_CALL_ATTEMPTS) throw err;
+      await bridge.waitForExtension(EXTENSION_WAIT_MS);
+    }
+  }
+  throw new Error('unreachable');
+}
 
 const definition: MCPToolDefinition = {
   name: 'real_tabs',
@@ -59,7 +77,7 @@ const handler: ToolHandler = async (
     await bridge.waitForExtension(EXTENSION_WAIT_MS);
 
     if (requestedTabId === undefined && !url) {
-      const tabs = await bridge.listTabs();
+      const tabs = await withReconnect(bridge, () => bridge.listTabs());
       return {
         content: [
           {
@@ -70,8 +88,10 @@ const handler: ToolHandler = async (
       };
     }
 
-    const chromeTabId = url ? (await bridge.createTab(url)).id : requestedTabId!;
-    const browser = await bridge.attachTab(chromeTabId);
+    const chromeTabId = url
+      ? (await withReconnect(bridge, () => bridge.createTab(url))).id
+      : requestedTabId!;
+    const browser = await withReconnect(bridge, () => bridge.attachTab(chromeTabId));
     const page = (await browser.pages())[0];
 
     const sessionManager = getSessionManager();

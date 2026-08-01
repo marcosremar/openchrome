@@ -91,8 +91,10 @@ chrome.debugger.onDetach.addListener((source) => {
 const DEFAULT_BRIDGE_URL = 'ws://127.0.0.1:9333';
 const MIN_RECONNECT_MS = 3000;
 const MAX_RECONNECT_MS = 15000;
+const KEEPALIVE_INTERVAL_MS = 15000;
 
 let reconnectDelay = MIN_RECONNECT_MS;
+let keepaliveCallId = 1;
 
 async function connect() {
   const { bridgeUrl } = await chrome.storage.local.get('bridgeUrl');
@@ -123,8 +125,13 @@ chrome.storage.onChanged.addListener((changes) => {
 });
 
 chrome.alarms.create('reconnect', { periodInMinutes: 0.5 });
-chrome.alarms.onAlarm.addListener(() => {
-  if (!socket || socket.readyState === WebSocket.CLOSED) connect();
+chrome.alarms.create('keepalive', { periodInMinutes: KEEPALIVE_INTERVAL_MS / 60000 });
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === 'reconnect' && (!socket || socket.readyState === WebSocket.CLOSED)) {
+    connect();
+  } else if (alarm.name === 'keepalive' && socket?.readyState === WebSocket.OPEN) {
+    send({ id: keepaliveCallId++, method: 'ping' });
+  }
 });
 
 chrome.runtime.onStartup.addListener(connect);
