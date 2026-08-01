@@ -14,6 +14,7 @@ import { getChromeLauncher } from '../chrome/launcher';
 
 const REAL_WORKER_ID = 'extension';
 const EXTENSION_WAIT_MS = Number(process.env.OPENCHROME_BRIDGE_WAIT_MS ?? 20000);
+const BRIDGE_RECONNECT_WAIT_MS = Number(process.env.OPENCHROME_BRIDGE_RECONNECT_WAIT_MS ?? 5000);
 const BRIDGE_CALL_ATTEMPTS = 3;
 
 async function withReconnect<T>(
@@ -27,7 +28,7 @@ async function withReconnect<T>(
       const message = err instanceof Error ? err.message : String(err);
       const retriable = message.includes('Extension disconnected') || message.includes('No extension connected');
       if (!retriable || attempt === BRIDGE_CALL_ATTEMPTS) throw err;
-      await bridge.waitForExtension(EXTENSION_WAIT_MS);
+      await bridge.waitForExtension(BRIDGE_RECONNECT_WAIT_MS);
     }
   }
   throw new Error('unreachable');
