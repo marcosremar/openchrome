@@ -1048,7 +1048,7 @@ export class ChromeLauncher {
   /**
    * Check if Chrome is currently running (regardless of debug port)
    */
-  private isChromeRunning(): boolean {
+  public isChromeRunning(): boolean {
     const platform = os.platform();
     try {
       if (platform === 'darwin') {

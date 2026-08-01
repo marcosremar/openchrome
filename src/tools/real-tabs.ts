@@ -10,6 +10,7 @@ import { MCPToolDefinition, MCPResult, ToolHandler } from '../types/mcp';
 import { getSessionManager } from '../session-manager';
 import { getExtensionBridge, bridgeTargetId } from '../extension-bridge';
 import { safeTitle } from '../utils/safe-title';
+import { getChromeLauncher } from '../chrome/launcher';
 
 const REAL_WORKER_ID = 'extension';
 const EXTENSION_WAIT_MS = Number(process.env.OPENCHROME_BRIDGE_WAIT_MS ?? 20000);
@@ -43,6 +44,18 @@ const handler: ToolHandler = async (
 
   try {
     const bridge = await getExtensionBridge();
+    const launcher = getChromeLauncher();
+    if (!launcher.isChromeRunning()) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: 'Chrome is not running. Start Chrome with the OpenChrome Bridge extension loaded to use real_tabs.',
+          },
+        ],
+        isError: true,
+      };
+    }
     await bridge.waitForExtension(EXTENSION_WAIT_MS);
 
     if (requestedTabId === undefined && !url) {
