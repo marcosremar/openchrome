@@ -16,7 +16,14 @@ function tabInfo(tab) {
 const handlers = {
   'tabs.query': async () => (await chrome.tabs.query({})).map(tabInfo),
 
-  'tabs.create': async ({ url }) => tabInfo(await chrome.tabs.create({ url })),
+  'tabs.create': async ({ url }) => {
+    const windows = await chrome.windows.getAll({ windowTypes: ['normal'] });
+    if (windows.length === 0) {
+      const created = await chrome.windows.create({ url });
+      return tabInfo(created.tabs[0]);
+    }
+    return tabInfo(await chrome.tabs.create({ url }));
+  },
 
   'tabs.update': async ({ tabId, url, active }) =>
     tabInfo(await chrome.tabs.update(tabId, { ...(url && { url }), ...(active !== undefined && { active }) })),
