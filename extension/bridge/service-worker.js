@@ -89,8 +89,8 @@ chrome.debugger.onDetach.addListener((source) => {
 });
 
 const DEFAULT_BRIDGE_URL = 'ws://127.0.0.1:9333';
-const MIN_RECONNECT_MS = 3000;
-const MAX_RECONNECT_MS = 15000;
+const MIN_RECONNECT_MS = 500;
+const MAX_RECONNECT_MS = 3000;
 const KEEPALIVE_INTERVAL_MS = 15000;
 
 let reconnectDelay = MIN_RECONNECT_MS;

@@ -19,16 +19,24 @@ const BRIDGE_CALL_ATTEMPTS = 3;
 
 async function withReconnect<T>(
   bridge: ExtensionBridgeServer,
-  fn: () => Promise<T>
+  fn: () => Promise<T>,
+  log?: (msg: string) => void
 ): Promise<T> {
   for (let attempt = 1; attempt <= BRIDGE_CALL_ATTEMPTS; attempt++) {
+    const t0 = Date.now();
     try {
-      return await fn();
+      const result = await fn();
+      log?.(`attempt-${attempt}:ok:${Date.now() - t0}ms`);
+      return result;
     } catch (err) {
+      const dt = Date.now() - t0;
       const message = err instanceof Error ? err.message : String(err);
       const retriable = message.includes('Extension disconnected') || message.includes('No extension connected');
+      log?.(`attempt-${attempt}:${retriable ? 'retry' : 'fail'}:${dt}ms:${message}`);
       if (!retriable || attempt === BRIDGE_CALL_ATTEMPTS) throw err;
+      const waitStart = Date.now();
       await bridge.waitForExtension(BRIDGE_RECONNECT_WAIT_MS);
+      log?.(`waited:${Date.now() - waitStart}ms`);
     }
   }
   throw new Error('unreachable');
@@ -72,10 +80,18 @@ const handler: ToolHandler = async (
   const url = args.url as string | undefined;
   const compact = args.compact !== false;
   const maxTabs = Math.max(1, Math.min(args.maxTabs as number | undefined ?? DEFAULT_MAX_TABS, 100));
+  const start = Date.now();
+  const marks: string[] = ['start'];
+
+  const mark = (label: string): void => {
+    marks.push(`${label}:${Date.now() - start}ms`);
+  };
 
   try {
     const bridge = await getExtensionBridge();
+    mark('bridge');
     const launcher = getChromeLauncher();
+    mark('launcher');
     if (!launcher.isChromeRunning()) {
       return {
         content: [
@@ -88,16 +104,20 @@ const handler: ToolHandler = async (
       };
     }
     await bridge.waitForExtension(EXTENSION_WAIT_MS);
+    mark('waited');
 
     if (requestedTabId === undefined && !url) {
-      const tabs = (await withReconnect(bridge, () => bridge.listTabs())).slice(0, maxTabs);
+      const tabs = (await withReconnect(bridge, () => bridge.listTabs(), (m) => console.error(`[real_tabs] listTabs ${m}`))).slice(0, maxTabs);
+      mark('listed');
       const output = compact
         ? {
             action: 'real_tabs',
             tabCount: tabs.length,
             tabs: tabs.map((tab) => ({ id: tab.id, title: tab.title, url: tab.url })),
+            timing: marks.join(' '),
           }
-        : { action: 'real_tabs', tabCount: tabs.length, tabs };
+        : { action: 'real_tabs', tabCount: tabs.length, tabs, timing: marks.join(' ') };
+      console.error(`[real_tabs] total:${Date.now() - start}ms ${marks.join(' ')}`);
       return {
         content: [
           {
@@ -109,9 +129,11 @@ const handler: ToolHandler = async (
     }
 
     const chromeTabId = url
-      ? (await withReconnect(bridge, () => bridge.createTab(url))).id
+      ? (await withReconnect(bridge, () => bridge.createTab(url), (m) => console.error(`[real_tabs] createTab ${m}`))).id
       : requestedTabId!;
-    const browser = await withReconnect(bridge, () => bridge.attachTab(chromeTabId));
+    mark('created');
+    const browser = await withReconnect(bridge, () => bridge.attachTab(chromeTabId), (m) => console.error(`[real_tabs] attachTab ${m}`));
+    mark('attached');
     const page = (await browser.pages())[0];
 
     const sessionManager = getSessionManager();
@@ -120,6 +142,9 @@ const handler: ToolHandler = async (
     const targetId = bridgeTargetId(chromeTabId);
     sessionManager.registerHeadedPage(targetId, sessionId, REAL_WORKER_ID, page);
 
+    const title = await safeTitle(page);
+    mark('title');
+    console.error(`[real_tabs] total:${Date.now() - start}ms ${marks.join(' ')}`);
     return {
       content: [
         {
@@ -131,7 +156,8 @@ const handler: ToolHandler = async (
             workerId: REAL_WORKER_ID,
             chromeTabId,
             url: page.url(),
-            title: await safeTitle(page),
+            title,
+            timing: marks.join(' '),
           }),
         },
       ],
