@@ -23,6 +23,9 @@ export interface SyncMetadata {
   sourceProfileHash: string;
   syncCount: number;
   sourceProfileDir: string;
+  /** full-clone = full profile mirror; cookie = legacy cookie-only sync */
+  mode?: 'full-clone' | 'cookie';
+  profileSubdir?: string;
 }
 
 export interface ProfileResolution {
@@ -81,6 +84,34 @@ export class ProfileManager {
 
   /** Cookie data is considered fresh if synced within this window (30 min). */
   static readonly COOKIE_FRESHNESS_MS = 30 * 60 * 1000;
+
+  static readonly PROFILE_CLONES_DIR = path.join(os.homedir(), '.openchrome', 'profiles');
+
+  static readonly CLONE_EXCLUDE_NAMES = new Set([
+    'Cache',
+    'Code Cache',
+    'GPUCache',
+    'GrShaderCache',
+    'ShaderCache',
+    'GraphiteDawnCache',
+    'DawnCache',
+    'blob_storage',
+    'BrowserMetrics',
+    'Crashpad',
+    'Safe Browsing',
+    'SingletonLock',
+    'SingletonSocket',
+    'SingletonCookie',
+    'lockfile',
+    'Service Worker',
+  ]);
+
+  static readonly SQLITE_PROFILE_FILES = [
+    'Cookies',
+    'Login Data',
+    'Web Data',
+    path.join('Network', 'Cookies'),
+  ];
 
   // -------------------------------------------------------------------------
   // Public methods
@@ -389,6 +420,161 @@ export class ProfileManager {
     }
   }
 
+  isolatedProfileDir(profileDirectory: string): string {
+    const safe = profileDirectory.replace(/[^a-zA-Z0-9_\- ]/g, '_');
+    return path.join(ProfileManager.PROFILE_CLONES_DIR, safe);
+  }
+
+  profileSyncMetaPath(destDir: string): string {
+    return path.join(destDir, '.oc-profile-sync.json');
+  }
+
+  getProfileSyncMetadata(destDir: string): SyncMetadata | null {
+    try {
+      const raw = fs.readFileSync(this.profileSyncMetaPath(destDir), 'utf8');
+      return JSON.parse(raw) as SyncMetadata;
+    } catch {
+      return null;
+    }
+  }
+
+  writeProfileSyncMetadata(destDir: string, metadata: SyncMetadata): void {
+    try {
+      fs.mkdirSync(destDir, { recursive: true });
+      const metaPath = this.profileSyncMetaPath(destDir);
+      const tmpPath = `${metaPath}.tmp-${Date.now()}`;
+      fs.writeFileSync(tmpPath, JSON.stringify(metadata, null, 2), 'utf8');
+      fs.renameSync(tmpPath, metaPath);
+    } catch (err) {
+      console.error('[ProfileManager] writeProfileSyncMetadata failed (non-fatal):', err);
+    }
+  }
+
+  sourceCookiesHash(sourceDir: string, profileSubdir: string): string | null {
+    const sourceCookiesPath = path.join(sourceDir, profileSubdir, 'Cookies');
+    try {
+      const stat = fs.statSync(sourceCookiesPath);
+      return `${stat.mtimeMs}:${stat.size}`;
+    } catch {
+      return null;
+    }
+  }
+
+  needsClone(sourceDir: string, profileSubdir: string, destDir: string): boolean {
+    const metadata = this.getProfileSyncMetadata(destDir);
+    const currentHash = this.sourceCookiesHash(sourceDir, profileSubdir);
+
+    if (!metadata || metadata.mode !== 'full-clone') {
+      return true;
+    }
+
+    if (!currentHash) {
+      return false;
+    }
+
+    if (currentHash !== metadata.sourceProfileHash) {
+      return true;
+    }
+
+    if (Date.now() - metadata.lastSyncTimestamp > ProfileManager.COOKIE_FRESHNESS_MS) {
+      return true;
+    }
+
+    const destPrefs = path.join(destDir, profileSubdir, 'Preferences');
+    try {
+      const prefs = JSON.parse(fs.readFileSync(destPrefs, 'utf8'));
+      const accounts = prefs?.account_info;
+      if (!Array.isArray(accounts) || accounts.length === 0) {
+        const srcPrefsPath = path.join(sourceDir, profileSubdir, 'Preferences');
+        try {
+          const srcPrefs = JSON.parse(fs.readFileSync(srcPrefsPath, 'utf8'));
+          const srcAccounts = srcPrefs?.account_info;
+          if (Array.isArray(srcAccounts) && srcAccounts.length > 0) {
+            return true;
+          }
+        } catch {
+        }
+      }
+    } catch {
+      return true;
+    }
+
+    const destCookies = path.join(destDir, profileSubdir, 'Cookies');
+    try {
+      const st = fs.statSync(destCookies);
+      if (st.mtimeMs > metadata.lastSyncTimestamp) {
+        console.error(
+          '[ProfileManager] Full-clone profile cookies modified after last clone — keeping local session'
+        );
+        return false;
+      }
+    } catch {
+    }
+
+    return false;
+  }
+
+  cloneRealProfile(
+    sourceDir: string,
+    destDir: string,
+    profileSubdir: string = 'Default'
+  ): { atomic: boolean; success: boolean } {
+    try {
+      const srcProfile = path.join(sourceDir, profileSubdir);
+      const destProfile = path.join(destDir, profileSubdir);
+
+      if (!fs.existsSync(srcProfile)) {
+        console.error(`[ProfileManager] cloneRealProfile: source missing ${srcProfile}`);
+        return { atomic: false, success: false };
+      }
+
+      fs.mkdirSync(destProfile, { recursive: true });
+
+      let atomic = false;
+      this._copyProfileTree(srcProfile, destProfile);
+
+      for (const rel of ProfileManager.SQLITE_PROFILE_FILES) {
+        const srcDb = path.join(srcProfile, rel);
+        const destDb = path.join(destProfile, rel);
+        if (!fs.existsSync(srcDb)) continue;
+        fs.mkdirSync(path.dirname(destDb), { recursive: true });
+        if (this._sqliteBackup(srcDb, destDb)) {
+          atomic = true;
+          for (const suffix of ['-wal', '-shm', '-journal']) {
+            const stale = destDb + suffix;
+            if (fs.existsSync(stale)) {
+              try { fs.unlinkSync(stale); } catch { /* ignore */ }
+            }
+          }
+        }
+      }
+
+      this._writeIsolatedLocalState(sourceDir, destDir, profileSubdir);
+      this.patchPreferencesExitType(destDir, profileSubdir);
+
+      const hash = this.sourceCookiesHash(sourceDir, profileSubdir) || '';
+      const existing = this.getProfileSyncMetadata(destDir);
+      this.writeProfileSyncMetadata(destDir, {
+        lastSyncTimestamp: Date.now(),
+        sourceProfileHash: hash,
+        syncCount: existing ? existing.syncCount + 1 : 1,
+        sourceProfileDir: sourceDir,
+        mode: 'full-clone',
+        profileSubdir,
+      });
+
+      this.updateSyncMetadata(sourceDir, profileSubdir);
+
+      console.error(
+        `[ProfileManager] Full profile clone complete (atomic=${atomic}) ${srcProfile} → ${destProfile}`
+      );
+      return { atomic, success: true };
+    } catch (err) {
+      console.error('[ProfileManager] cloneRealProfile failed (non-fatal):', err);
+      return { atomic: false, success: false };
+    }
+  }
+
   /**
    * Read the current sync metadata from disk.
    *
@@ -520,15 +706,17 @@ export class ProfileManager {
       };
     }
 
-    // 4. Real profile exists but IS locked (or auto-launch) — use persistent profile
-    //    When isAutoLaunch is true, Chrome 136+ requires a non-default --user-data-dir,
-    //    so we use the persistent profile even when the real profile is not locked.
+    // 4. Real profile exists but IS locked (or auto-launch) — use non-default user-data-dir.
+    //    Chrome 136+ rejects CDP on the default user-data-dir, so we mirror the real profile
+    //    into ~/.openchrome/profiles/<name> (named profiles) or ~/.openchrome/profile (Default).
     if (realProfileDir && (isProfileLocked || isAutoLaunch)) {
-      const persistentDir = this.getOrCreatePersistentProfile();
       const subdir = profileDirectory || 'Default';
+      const persistentDir =
+        profileDirectory && profileDirectory !== 'Default'
+          ? this.isolatedProfileDir(profileDirectory)
+          : this.getOrCreatePersistentProfile();
 
-      if (!this.needsSync(realProfileDir, subdir)) {
-        // Persistent profile is fresh — reuse without re-sync
+      if (!this.needsClone(realProfileDir, subdir, persistentDir)) {
         return {
           userDataDir: persistentDir,
           profileType: 'persistent',
@@ -537,12 +725,11 @@ export class ProfileManager {
         };
       }
 
-      // Stale — sync profile data from real profile into persistent profile
-      const syncResult = this.syncProfileData(realProfileDir, persistentDir, subdir);
+      const cloneResult = this.cloneRealProfile(realProfileDir, persistentDir, subdir);
       return {
         userDataDir: persistentDir,
         profileType: 'persistent',
-        syncPerformed: syncResult.atomic || syncResult.success,
+        syncPerformed: cloneResult.atomic || cloneResult.success,
         ...(profileDirectory && { profileDirectory }),
       };
     }
@@ -629,6 +816,105 @@ export class ProfileManager {
       console.error('[ProfileManager] Patched Preferences: exit_type=Normal');
     } catch {
       // Parse or write failed — non-fatal, Chrome will create fresh defaults
+    }
+  }
+
+  private _sqliteBackup(srcDb: string, destDb: string): boolean {
+    if (!this._isSqlite3Available()) {
+      try {
+        fs.copyFileSync(srcDb, destDb);
+        for (const suffix of ['-wal', '-shm', '-journal']) {
+          const src = srcDb + suffix;
+          if (fs.existsSync(src)) {
+            try { fs.copyFileSync(src, destDb + suffix); } catch { /* ignore */ }
+          }
+        }
+        return false;
+      } catch {
+        return false;
+      }
+    }
+    try {
+      if (process.platform === 'win32' && destDb.includes('"')) {
+        throw new Error('sqlite3 .backup: destination path contains \'"\'');
+      }
+      const backupCmd = process.platform === 'win32'
+        ? `.backup "${destDb}"`
+        : `.backup '${destDb.replace(/'/g, "''")}'`;
+      execFileSync('sqlite3', [srcDb, backupCmd], { stdio: 'ignore', timeout: 15000 });
+      return true;
+    } catch {
+      try {
+        fs.copyFileSync(srcDb, destDb);
+        return false;
+      } catch {
+        return false;
+      }
+    }
+  }
+
+  private _copyProfileTree(src: string, dest: string): void {
+    fs.mkdirSync(dest, { recursive: true });
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(src, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (ProfileManager.CLONE_EXCLUDE_NAMES.has(entry.name)) continue;
+      if (entry.name.startsWith('BrowserMetrics')) continue;
+      const srcPath = path.join(src, entry.name);
+      const destPath = path.join(dest, entry.name);
+      if (entry.isDirectory()) {
+        this._copyProfileTree(srcPath, destPath);
+      } else if (entry.isFile()) {
+        try {
+          fs.copyFileSync(srcPath, destPath);
+        } catch {
+        }
+      }
+    }
+  }
+
+  private _writeIsolatedLocalState(
+    sourceDir: string,
+    destDir: string,
+    profileSubdir: string
+  ): void {
+    const destPath = path.join(destDir, 'Local State');
+    let localState: any = {};
+    try {
+      if (fs.existsSync(destPath)) {
+        localState = JSON.parse(fs.readFileSync(destPath, 'utf8'));
+      }
+    } catch {
+      localState = {};
+    }
+
+    let sourceInfo: any = null;
+    try {
+      const srcLocal = JSON.parse(
+        fs.readFileSync(path.join(sourceDir, 'Local State'), 'utf8')
+      );
+      sourceInfo = srcLocal?.profile?.info_cache?.[profileSubdir] || null;
+      if (srcLocal?.os_crypt) {
+        localState.os_crypt = srcLocal.os_crypt;
+      }
+    } catch {
+    }
+
+    if (!localState.profile) localState.profile = {};
+    localState.profile.last_used = profileSubdir;
+    localState.profile.last_active_profiles = [profileSubdir];
+    localState.profile.info_cache = sourceInfo
+      ? { [profileSubdir]: sourceInfo }
+      : (localState.profile.info_cache || {});
+
+    try {
+      fs.writeFileSync(destPath, JSON.stringify(localState));
+    } catch (err) {
+      console.error('[ProfileManager] Local State write failed (non-fatal):', err);
     }
   }
 

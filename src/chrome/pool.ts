@@ -355,22 +355,22 @@ export class ChromePool {
       ? path.join(os.homedir(), '.openchrome', 'profiles', profileDirectory.replace(/[^a-zA-Z0-9_\- ]/g, '_'))
       : undefined;
 
-    // Sync cookies from the real Chrome profile into the isolated user-data-dir
-    // so that profile instances start with up-to-date session data.
+    // Mirror the real Chrome profile into the isolated user-data-dir so named
+    // profiles keep account sessions (cookie-only sync leaves Google signed out).
     if (profileDirectory && profileUserDataDir) {
       try {
         const profileManager = new ProfileManager();
         const realProfileDir = profileManager.getDefaultUserDataDir();
-        if (realProfileDir && profileManager.needsSync(realProfileDir, profileDirectory, profileUserDataDir)) {
-          const result = profileManager.syncProfileData(realProfileDir, profileUserDataDir, profileDirectory);
+        if (realProfileDir && profileManager.needsClone(realProfileDir, profileDirectory, profileUserDataDir)) {
+          const result = profileManager.cloneRealProfile(realProfileDir, profileUserDataDir, profileDirectory);
           console.error(
-            `[ChromePool] Cookie sync for profile "${profileDirectory}": ` +
+            `[ChromePool] Full profile clone for "${profileDirectory}": ` +
             `success=${result.success}, atomic=${result.atomic}`
           );
         }
       } catch (err) {
         console.error(
-          `[ChromePool] Warning: cookie sync failed for profile "${profileDirectory}":`,
+          `[ChromePool] Warning: profile clone failed for "${profileDirectory}":`,
           err instanceof Error ? err.message : err
         );
       }

@@ -551,10 +551,10 @@ describe('ProfileManager', () => {
       expect(result.syncPerformed).toBe(false);
     });
 
-    it('should return persistent profile with sync when locked and stale', () => {
+    it('should return persistent profile with clone when locked and stale', () => {
       const manager = new ProfileManager();
-      jest.spyOn(manager, 'needsSync').mockReturnValue(true);
-      jest.spyOn(manager, 'syncProfileData').mockReturnValue({ atomic: true, success: true });
+      jest.spyOn(manager, 'needsClone').mockReturnValue(true);
+      jest.spyOn(manager, 'cloneRealProfile').mockReturnValue({ atomic: true, success: true });
       jest.spyOn(manager, 'getOrCreatePersistentProfile').mockReturnValue('/mock/persistent');
 
       const result = manager.resolveProfile({
@@ -565,13 +565,13 @@ describe('ProfileManager', () => {
       expect(result.profileType).toBe('persistent');
       expect(result.userDataDir).toBe('/mock/persistent');
       expect(result.syncPerformed).toBe(true);
-      expect(manager.syncProfileData).toHaveBeenCalledWith('/real/chrome/profile', '/mock/persistent', 'Default');
+      expect(manager.cloneRealProfile).toHaveBeenCalledWith('/real/chrome/profile', '/mock/persistent', 'Default');
     });
 
-    it('should return persistent profile without sync when locked but fresh', () => {
+    it('should return persistent profile without clone when locked but fresh', () => {
       const manager = new ProfileManager();
-      jest.spyOn(manager, 'needsSync').mockReturnValue(false);
-      jest.spyOn(manager, 'syncProfileData');
+      jest.spyOn(manager, 'needsClone').mockReturnValue(false);
+      jest.spyOn(manager, 'cloneRealProfile');
       jest.spyOn(manager, 'getOrCreatePersistentProfile').mockReturnValue('/mock/persistent');
 
       const result = manager.resolveProfile({
@@ -582,7 +582,7 @@ describe('ProfileManager', () => {
       expect(result.profileType).toBe('persistent');
       expect(result.userDataDir).toBe('/mock/persistent');
       expect(result.syncPerformed).toBe(false);
-      expect(manager.syncProfileData).not.toHaveBeenCalled();
+      expect(manager.cloneRealProfile).not.toHaveBeenCalled();
     });
 
     it('should return persistent profile when no real profile dir exists', () => {
@@ -607,7 +607,7 @@ describe('ProfileManager', () => {
   describe('resolveProfile() with isAutoLaunch', () => {
     it('should return persistent profile (not real) when isAutoLaunch is true and profile is unlocked', () => {
       const manager = new ProfileManager();
-      jest.spyOn(manager, 'needsSync').mockReturnValue(false);
+      jest.spyOn(manager, 'needsClone').mockReturnValue(false);
       jest.spyOn(manager, 'getOrCreatePersistentProfile').mockReturnValue('/mock/persistent');
 
       const result = manager.resolveProfile({
@@ -620,10 +620,10 @@ describe('ProfileManager', () => {
       expect(result.userDataDir).toBe('/mock/persistent');
     });
 
-    it('should perform cookie sync when isAutoLaunch is true and cookies are stale', () => {
+    it('should perform full clone when isAutoLaunch is true and clone is needed', () => {
       const manager = new ProfileManager();
-      jest.spyOn(manager, 'needsSync').mockReturnValue(true);
-      jest.spyOn(manager, 'syncProfileData').mockReturnValue({ atomic: true, success: true });
+      jest.spyOn(manager, 'needsClone').mockReturnValue(true);
+      jest.spyOn(manager, 'cloneRealProfile').mockReturnValue({ atomic: true, success: true });
       jest.spyOn(manager, 'getOrCreatePersistentProfile').mockReturnValue('/mock/persistent');
 
       const result = manager.resolveProfile({
@@ -634,7 +634,7 @@ describe('ProfileManager', () => {
 
       expect(result.profileType).toBe('persistent');
       expect(result.syncPerformed).toBe(true);
-      expect(manager.syncProfileData).toHaveBeenCalledWith('/real/chrome/profile', '/mock/persistent', 'Default');
+      expect(manager.cloneRealProfile).toHaveBeenCalledWith('/real/chrome/profile', '/mock/persistent', 'Default');
     });
 
     it('should return real profile when isAutoLaunch is false and profile is unlocked (backward compat)', () => {
@@ -678,7 +678,7 @@ describe('ProfileManager', () => {
 
     it('should return persistent profile when isAutoLaunch is true and profile is also locked', () => {
       const manager = new ProfileManager();
-      jest.spyOn(manager, 'needsSync').mockReturnValue(false);
+      jest.spyOn(manager, 'needsClone').mockReturnValue(false);
       jest.spyOn(manager, 'getOrCreatePersistentProfile').mockReturnValue('/mock/persistent');
 
       const result = manager.resolveProfile({
@@ -870,11 +870,12 @@ describe('ProfileManager', () => {
       expect(result.profileDirectory).toBe('Profile 1');
     });
 
-    it('resolveProfile should sync from the requested profileDirectory, not Default', () => {
+    it('resolveProfile should clone the requested profileDirectory into an isolated dir', () => {
       const manager = new ProfileManager();
-      jest.spyOn(manager, 'needsSync').mockReturnValue(true);
-      jest.spyOn(manager, 'syncProfileData').mockReturnValue({ atomic: true, success: true });
-      jest.spyOn(manager, 'getOrCreatePersistentProfile').mockReturnValue('/mock/persistent');
+      jest.spyOn(manager, 'needsClone').mockReturnValue(true);
+      jest.spyOn(manager, 'cloneRealProfile').mockReturnValue({ atomic: true, success: true });
+      jest.spyOn(manager, 'isolatedProfileDir').mockReturnValue('/mock/isolated/Profile 7');
+      jest.spyOn(manager, 'getOrCreatePersistentProfile');
 
       const result = manager.resolveProfile({
         realProfileDir: '/real/chrome/profile',
@@ -883,8 +884,96 @@ describe('ProfileManager', () => {
       });
 
       expect(result.profileType).toBe('persistent');
-      expect(manager.needsSync).toHaveBeenCalledWith('/real/chrome/profile', 'Profile 7');
-      expect(manager.syncProfileData).toHaveBeenCalledWith('/real/chrome/profile', '/mock/persistent', 'Profile 7');
+      expect(result.userDataDir).toBe('/mock/isolated/Profile 7');
+      expect(manager.getOrCreatePersistentProfile).not.toHaveBeenCalled();
+      expect(manager.needsClone).toHaveBeenCalledWith(
+        '/real/chrome/profile',
+        'Profile 7',
+        '/mock/isolated/Profile 7'
+      );
+      expect(manager.cloneRealProfile).toHaveBeenCalledWith(
+        '/real/chrome/profile',
+        '/mock/isolated/Profile 7',
+        'Profile 7'
+      );
+    });
+  });
+
+  describe('cloneRealProfile()', () => {
+    it('should copy Preferences account_info and write full-clone metadata', () => {
+      const manager = new ProfileManager();
+      const sourceDir = path.join(tmpDir, 'src-chrome');
+      const destDir = path.join(tmpDir, 'dest-clone');
+      const sub = 'Profile 7';
+      fs.mkdirSync(path.join(sourceDir, sub), { recursive: true });
+      fs.writeFileSync(path.join(sourceDir, sub, 'Cookies'), 'cookie-db');
+      fs.writeFileSync(
+        path.join(sourceDir, sub, 'Preferences'),
+        JSON.stringify({
+          account_info: [{ email: 'marcosremar@gmail.com' }],
+          profile: { name: 'Your Chrome' },
+        })
+      );
+      fs.writeFileSync(
+        path.join(sourceDir, 'Local State'),
+        JSON.stringify({
+          profile: {
+            info_cache: {
+              'Profile 7': { name: 'Your Chrome', user_name: 'marcosremar@gmail.com' },
+            },
+            last_used: 'Profile 7',
+          },
+        })
+      );
+
+      mockExecFileSync.mockImplementation((cmd: string, args?: readonly string[]) => {
+        if (cmd === 'which' || cmd === 'where') {
+          throw new Error('no sqlite3 in test');
+        }
+        return Buffer.from('');
+      });
+
+      const result = manager.cloneRealProfile(sourceDir, destDir, sub);
+      expect(result.success).toBe(true);
+
+      const prefs = JSON.parse(
+        fs.readFileSync(path.join(destDir, sub, 'Preferences'), 'utf8')
+      );
+      expect(prefs.account_info[0].email).toBe('marcosremar@gmail.com');
+      expect(prefs.profile.exit_type).toBe('Normal');
+
+      const localState = JSON.parse(
+        fs.readFileSync(path.join(destDir, 'Local State'), 'utf8')
+      );
+      expect(localState.profile.last_used).toBe('Profile 7');
+      expect(localState.profile.info_cache['Profile 7'].user_name).toBe(
+        'marcosremar@gmail.com'
+      );
+
+      const meta = manager.getProfileSyncMetadata(destDir);
+      expect(meta?.mode).toBe('full-clone');
+      expect(meta?.profileSubdir).toBe('Profile 7');
+    });
+
+    it('needsClone should be true for legacy cookie-only destinations', () => {
+      const manager = new ProfileManager();
+      const sourceDir = path.join(tmpDir, 'src2');
+      const destDir = path.join(tmpDir, 'dest2');
+      const sub = 'Profile 7';
+      fs.mkdirSync(path.join(sourceDir, sub), { recursive: true });
+      fs.mkdirSync(path.join(destDir, sub), { recursive: true });
+      fs.writeFileSync(path.join(sourceDir, sub, 'Cookies'), 'src');
+      fs.writeFileSync(path.join(destDir, sub, 'Cookies'), 'dst');
+      fs.writeFileSync(
+        path.join(sourceDir, sub, 'Preferences'),
+        JSON.stringify({ account_info: [{ email: 'a@b.com' }] })
+      );
+      fs.writeFileSync(
+        path.join(destDir, sub, 'Preferences'),
+        JSON.stringify({ account_info: [] })
+      );
+
+      expect(manager.needsClone(sourceDir, sub, destDir)).toBe(true);
     });
   });
 });

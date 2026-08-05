@@ -28,6 +28,9 @@ jest.mock('../../src/chrome/profile-manager', () => ({
       { directory: 'Profile 1', name: 'Work', isActive: false },
       { directory: 'Profile 2', name: 'Client', isActive: false },
     ]),
+    getDefaultUserDataDir: jest.fn().mockReturnValue(null),
+    needsClone: jest.fn().mockReturnValue(false),
+    cloneRealProfile: jest.fn().mockReturnValue({ atomic: true, success: true }),
   })),
 }));
 
@@ -231,6 +234,9 @@ describe('ChromePool — multi-profile features', () => {
           { directory: 'Profile 1', name: 'Work', isActive: false },
           { directory: 'Profile@2!Special', name: 'Special', isActive: false },
         ]),
+        getDefaultUserDataDir: jest.fn().mockReturnValue(null),
+        needsClone: jest.fn().mockReturnValue(false),
+        cloneRealProfile: jest.fn().mockReturnValue({ atomic: true, success: true }),
       }));
 
       const pool = new ChromePool({ maxInstances: 5, basePort: 19950, autoLaunch: false });

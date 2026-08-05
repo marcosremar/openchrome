@@ -164,17 +164,16 @@ class HeadedFallbackManager {
       const safeName = resolvedProfile.replace(/[^a-zA-Z0-9_\- ]/g, '_');
       userDataDir = path.join(os.homedir(), '.openchrome', 'profiles', safeName);
 
-      // Sync cookies from real Chrome profile (non-fatal)
       try {
         const { ProfileManager } = await import('./profile-manager');
         const profileManager = new ProfileManager();
         const realProfileDir = profileManager.getDefaultUserDataDir();
-        if (realProfileDir && profileManager.needsSync(realProfileDir, resolvedProfile, userDataDir)) {
-          const result = profileManager.syncProfileData(realProfileDir, userDataDir, resolvedProfile);
-          console.error(`[HeadedFallback] Cookie sync: atomic=${result.atomic}, success=${result.success}`);
+        if (realProfileDir && profileManager.needsClone(realProfileDir, resolvedProfile, userDataDir)) {
+          const result = profileManager.cloneRealProfile(realProfileDir, userDataDir, resolvedProfile);
+          console.error(`[HeadedFallback] Full profile clone: atomic=${result.atomic}, success=${result.success}`);
         }
       } catch (err) {
-        console.error('[HeadedFallback] Cookie sync failed (non-fatal):', err);
+        console.error('[HeadedFallback] Profile clone failed (non-fatal):', err);
       }
     } else {
       userDataDir = path.join(os.tmpdir(), `openchrome-headed-fallback-${this.port}`);

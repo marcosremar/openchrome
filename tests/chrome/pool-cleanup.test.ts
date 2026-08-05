@@ -15,6 +15,9 @@ jest.mock('../../src/chrome/launcher', () => ({
 jest.mock('../../src/chrome/profile-manager', () => ({
   ProfileManager: jest.fn().mockImplementation(() => ({
     listProfiles: jest.fn().mockReturnValue([]),
+    getDefaultUserDataDir: jest.fn().mockReturnValue(null),
+    needsClone: jest.fn().mockReturnValue(false),
+    cloneRealProfile: jest.fn().mockReturnValue({ atomic: true, success: true }),
   })),
 }));
 

@@ -22,6 +22,9 @@ jest.mock('../../src/chrome/profile-manager', () => ({
       { directory: 'Default', name: 'Person 1' },
       { directory: 'Profile 1', name: 'Person 2' },
     ]),
+    getDefaultUserDataDir: jest.fn().mockReturnValue(null),
+    needsClone: jest.fn().mockReturnValue(false),
+    cloneRealProfile: jest.fn().mockReturnValue({ atomic: true, success: true }),
   })),
 }));
 
