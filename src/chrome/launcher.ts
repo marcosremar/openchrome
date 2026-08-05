@@ -97,30 +97,145 @@ function findChromePath(): string | null {
 }
 
 /**
- * Find chrome-headless-shell binary
+ * Find chrome-headless-shell binary.
+ * Prefer this for headless automation so Google Chrome.app stays free for the
+ * user's Dock/Finder click (macOS activates any running Chrome.app process).
  */
-function findChromeHeadlessShell(): string | null {
-  // Check environment variable first
+export function findChromeHeadlessShell(): string | null {
   const envPath = process.env['CHROME_HEADLESS_SHELL'];
   if (envPath && fs.existsSync(envPath)) {
     return envPath;
   }
 
-  // Check PATH using which (Linux/Mac) or where (Windows)
   const platform = os.platform();
   try {
     const cmd = platform === 'win32'
       ? 'where chrome-headless-shell'
       : 'which chrome-headless-shell';
-    const result = execSync(cmd, { encoding: 'utf8' }).trim();
+    const result = execSync(cmd, { encoding: 'utf8' }).trim().split(/\r?\n/)[0];
     if (result && fs.existsSync(result)) {
       return result;
     }
   } catch {
-    // Not found in PATH
+  }
+
+  // Playwright / Puppeteer cache installs (common on developer machines)
+  const home = os.homedir();
+  const cacheRoots = [
+    path.join(home, 'Library', 'Caches', 'ms-playwright'),
+    path.join(home, '.cache', 'ms-playwright'),
+    path.join(home, 'AppData', 'Local', 'ms-playwright'),
+    path.join(home, '.cache', 'puppeteer'),
+  ];
+  const found: { mtime: number; file: string }[] = [];
+  for (const root of cacheRoots) {
+    if (!fs.existsSync(root)) continue;
+    try {
+      walkForHeadlessShell(root, found, 0);
+    } catch {
+    }
+  }
+  if (found.length > 0) {
+    found.sort((a, b) => b.mtime - a.mtime);
+    return found[0].file;
   }
 
   return null;
+}
+
+function walkForHeadlessShell(
+  dir: string,
+  out: { mtime: number; file: string }[],
+  depth: number
+): void {
+  if (depth > 6) return;
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isFile() && (entry.name === 'chrome-headless-shell' || entry.name === 'chrome-headless-shell.exe')) {
+      try {
+        out.push({ file: full, mtime: fs.statSync(full).mtimeMs });
+      } catch {
+      }
+    } else if (entry.isDirectory() && !entry.name.startsWith('.')) {
+      walkForHeadlessShell(full, out, depth + 1);
+    }
+  }
+}
+
+/**
+ * Remove Singleton* / RunningChromeVersion when the lock owner PID is dead.
+ * Prevents a crashed automation Chrome from blocking Dock/Finder opens of
+ * the user's real Google Chrome profile.
+ */
+export function removeDeadSingletonLocks(profileDir: string): boolean {
+  if (!profileDir || !fs.existsSync(profileDir)) return false;
+
+  const lockPath = path.join(profileDir, 'SingletonLock');
+  let shouldClean = false;
+
+  try {
+    const stats = fs.lstatSync(lockPath);
+    if (stats.isSymbolicLink()) {
+      const target = fs.readlinkSync(lockPath);
+      const pid = parseInt(target.split('-').pop() || '', 10);
+      if (!isNaN(pid) && pid > 0) {
+        try {
+          process.kill(pid, 0);
+          // alive
+          return false;
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code === 'EPERM') {
+            return false;
+          }
+          shouldClean = true;
+        }
+      } else {
+        shouldClean = true;
+      }
+    }
+  } catch {
+    // no SingletonLock — still clear orphan cookies/sockets if present with no owner
+    const cookie = path.join(profileDir, 'SingletonCookie');
+    const socket = path.join(profileDir, 'SingletonSocket');
+    try {
+      fs.lstatSync(cookie);
+      // orphan cookie without lock → clean
+      shouldClean = true;
+    } catch {
+      try {
+        fs.lstatSync(socket);
+        shouldClean = true;
+      } catch {
+        return false;
+      }
+    }
+  }
+
+  if (!shouldClean) return false;
+
+  let removed = false;
+  for (const name of [
+    'SingletonLock',
+    'SingletonCookie',
+    'SingletonSocket',
+    'RunningChromeVersion',
+  ]) {
+    const p = path.join(profileDir, name);
+    try {
+      fs.lstatSync(p);
+      fs.unlinkSync(p);
+      removed = true;
+      console.error(`[ChromeLauncher] Removed dead singleton artifact: ${p}`);
+    } catch {
+    }
+  }
+  return removed;
 }
 
 /**
@@ -487,24 +602,33 @@ export class ChromeLauncher {
 
     const globalConfig = getGlobalConfig();
 
-    // Resolve Chrome binary: explicit override > headless-shell > standard Chrome
+    // Resolve Chrome binary.
+    // Headless automation prefers chrome-headless-shell (different binary) so the
+    // user's Google Chrome.app is not "held" by a headless process — on macOS the
+    // Dock icon activates any running Chrome.app instance and appears broken.
+    const headless = options.headless ?? globalConfig.headless ?? false;
     let chromePath: string | null = null;
     let usingHeadlessShell = false;
 
     if (globalConfig.chromeBinary) {
       chromePath = globalConfig.chromeBinary;
       console.error(`[ChromeLauncher] Using custom Chrome binary: ${chromePath}`);
-    } else if (globalConfig.useHeadlessShell) {
-      chromePath = findChromeHeadlessShell();
-      if (chromePath) {
-        usingHeadlessShell = true;
-        console.error(`[ChromeLauncher] Using chrome-headless-shell: ${chromePath}`);
-      } else {
-        console.error('[ChromeLauncher] chrome-headless-shell not found, falling back to standard Chrome');
+    } else {
+      const wantShell =
+        !!globalConfig.useHeadlessShell ||
+        (headless && (process.platform === 'darwin' || process.env.OPENCHROME_PREFER_HEADLESS_SHELL === '1'));
+      if (wantShell) {
+        chromePath = findChromeHeadlessShell();
+        if (chromePath) {
+          usingHeadlessShell = true;
+          console.error(`[ChromeLauncher] Using chrome-headless-shell: ${chromePath}`);
+        } else if (globalConfig.useHeadlessShell) {
+          console.error('[ChromeLauncher] chrome-headless-shell not found, falling back to standard Chrome');
+        }
+      }
+      if (!chromePath) {
         chromePath = findChromePath();
       }
-    } else {
-      chromePath = findChromePath();
     }
 
     if (!chromePath) {
@@ -513,9 +637,23 @@ export class ChromeLauncher {
       );
     }
 
+    if (headless && !usingHeadlessShell && process.platform === 'darwin') {
+      console.error(
+        '[ChromeLauncher] WARNING: headless Google Chrome.app can block Dock clicks. ' +
+        'Install chrome-headless-shell (Playwright) or pass --headless-shell.'
+      );
+    }
+
     // Resolve which profile directory to use via ProfileManager.
     // Priority: explicit > temp/headless > real unlocked > persistent (with sync) > persistent (no sync)
     const realProfileDir = this.getRealChromeProfileDir();
+    if (realProfileDir) {
+      try {
+        removeDeadSingletonLocks(realProfileDir);
+      } catch (err) {
+        console.error('[ChromeLauncher] removeDeadSingletonLocks failed (non-fatal):', err);
+      }
+    }
     const explicitUserDataDir = options.userDataDir || globalConfig.userDataDir;
     // Skip expensive isProfileLocked check when result won't be used:
     // explicit dir, temp profile, headless-shell, or no real profile.
@@ -641,9 +779,14 @@ export class ChromeLauncher {
     //   --disable-crash-reporter         (automation fingerprint signal)
 
     // Headless mode: explicit option > global config (default when auto-launch)
-    const headless = options.headless ?? globalConfig.headless ?? false;
+    // `headless` already resolved above for binary selection.
     if (headless) {
-      args.push('--headless=new', '--disable-gpu', '--disable-dev-shm-usage');
+      // chrome-headless-shell is always headless; still pass flags for full Chrome.
+      if (!usingHeadlessShell) {
+        args.push('--headless=new', '--disable-gpu', '--disable-dev-shm-usage');
+      } else {
+        args.push('--disable-gpu', '--disable-dev-shm-usage');
+      }
       console.error('[ChromeLauncher] Running in headless mode (no visible window)');
     }
 
@@ -1023,8 +1166,9 @@ export class ChromeLauncher {
                 if ((err as NodeJS.ErrnoException).code === 'EPERM') {
                   // Lock is held by an existing Chrome process — do not skip
                 } else {
-                  // PID not alive → stale lock file left by crashed Chrome, skip it
-                  console.error(`[ChromeLauncher] Stale lock ignored: ${lockFile} (PID ${pid} not alive)`);
+                  // PID not alive → remove dead singleton so user Chrome can open again
+                  console.error(`[ChromeLauncher] Stale lock removed: ${lockFile} (PID ${pid} not alive)`);
+                  removeDeadSingletonLocks(profileDir);
                   continue;
                 }
               }

@@ -65,8 +65,9 @@ describe('ChromeLauncher port race condition fixes', () => {
 
       expect(result).toBe(false);
       expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Stale lock ignored')
+        expect.stringContaining('Stale lock removed')
       );
+      expect(fs.existsSync(lockFile)).toBe(false);
 
       fs.rmSync(tmpDir, { recursive: true, force: true });
     });
@@ -125,25 +126,34 @@ describe('ChromeLauncher port race condition fixes', () => {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     });
 
-    it('should ignore stale SingletonLock but detect live SingletonCookie', () => {
+    it('should remove stale SingletonLock and sibling singleton artifacts', () => {
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'oc-test-'));
 
-      // SingletonLock with dead PID → stale, should be skipped
       fs.symlinkSync(`${os.hostname()}-999999999`, path.join(tmpDir, 'SingletonLock'));
-
-      // SingletonCookie is a regular file → should be detected as locked
       fs.writeFileSync(path.join(tmpDir, 'SingletonCookie'), '');
+      fs.writeFileSync(path.join(tmpDir, 'SingletonSocket'), '');
 
       const result = (launcher as any).isProfileLocked(tmpDir);
 
-      expect(result).toBe(true);
-      // Should log stale lock being ignored AND the cookie lock being detected
+      expect(result).toBe(false);
       expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Stale lock ignored')
+        expect.stringContaining('Stale lock removed')
       );
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.stringContaining('SingletonCookie')
-      );
+      expect(fs.existsSync(path.join(tmpDir, 'SingletonLock'))).toBe(false);
+      expect(fs.existsSync(path.join(tmpDir, 'SingletonCookie'))).toBe(false);
+
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it('should remove dead singleton locks via removeDeadSingletonLocks', () => {
+      const { removeDeadSingletonLocks } = require('../../src/chrome/launcher');
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'oc-test-'));
+      fs.symlinkSync(`${os.hostname()}-999999999`, path.join(tmpDir, 'SingletonLock'));
+      fs.writeFileSync(path.join(tmpDir, 'SingletonCookie'), 'x');
+
+      expect(removeDeadSingletonLocks(tmpDir)).toBe(true);
+      expect(fs.existsSync(path.join(tmpDir, 'SingletonLock'))).toBe(false);
+      expect(fs.existsSync(path.join(tmpDir, 'SingletonCookie'))).toBe(false);
 
       fs.rmSync(tmpDir, { recursive: true, force: true });
     });

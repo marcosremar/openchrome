@@ -135,6 +135,19 @@ program
       console.error(`[openchrome] Restart Chrome mode: enabled (will quit existing Chrome)`);
     }
 
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { removeDeadSingletonLocks } = require('./chrome/launcher');
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { ProfileManager } = require('./chrome/profile-manager');
+      const realDir = new ProfileManager().getDefaultUserDataDir();
+      if (realDir && removeDeadSingletonLocks(realDir)) {
+        console.error('[openchrome] Cleared dead singleton locks from real Chrome profile');
+      }
+    } catch (err) {
+      console.error('[openchrome] Startup lock cleanup failed (non-fatal):', err);
+    }
+
     // Server mode: cookie bridge remains active for normal page creation.
     // Pool pre-warming passes skipCookieBridge per-call to avoid CDP conflicts.
 
